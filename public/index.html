@@ -139,18 +139,21 @@ f.onsubmit = async (e) => {
       body: JSON.stringify({ question, asReply: true }),
     });
     const j = await r.json().catch(() => ({}));
-    a.textContent = r.ok && j.answer ? j.answer : "Something went wrong (" + r.status + ").";
-    if (a.textContent === "Something went wrong (" + r.status + ").") a.classList.add("err");
+    const ok = r.ok && j.answer;
+    a.textContent = ok ? j.answer : "Something went wrong (" + r.status + ").";
+    if (!ok) a.classList.add("err");
   } catch {
     a.textContent = "Network error — check the connection.";
     a.classList.add("err");
   }
-  const b = document.createElement("button");
-  b.className = "copy";
-  b.type = "button";
-  b.textContent = "Copy reply";
-  b.onclick = () => { navigator.clipboard.writeText(a.textContent); b.textContent = "Copied ✓"; setTimeout(() => b.textContent = "Copy reply", 1300); };
-  a.appendChild(b);
+  if (a.textContent !== "Network error — check the connection.") {
+    const b = document.createElement("button");
+    b.className = "copy";
+    b.type = "button";
+    b.textContent = "Copy reply";
+    b.onclick = () => { navigator.clipboard.writeText(a.textContent); b.textContent = "Copied ✓"; setTimeout(() => b.textContent = "Copy reply", 1300); };
+    a.appendChild(b);
+  }
   send.disabled = false;
   q.focus();
   scroll();
