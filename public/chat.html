@@ -70,9 +70,6 @@ f.onsubmit = async (e) => {
     a.textContent = "Network error — check the connection.";
     a.className += " err";
   }
-  a.cloneNode(true);
-  if (a.textContent !== "…") add("done-hidden", "");
-  log.lastChild.remove();
   send.disabled = false;
   q.focus();
 };
