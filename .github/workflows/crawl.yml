@@ -1,0 +1,19 @@
+name: Weekly website crawl
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # Mondays 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install trafilatura requests
+      - run: python crawler/crawl.py
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          TEAM_KEY: ${{ secrets.TEAM_KEY }}
