@@ -7,6 +7,7 @@ interface Env {
   LLM_BASE_URL: string;
   LLM_MODEL: string;
   LLM_API_KEY: string;
+  ASSETS?: { fetch: (request: Request) => Promise<Response> };
 }
 
 type Row = Record<string, any>;
@@ -275,9 +276,11 @@ async function unanswered(env: Env, url: URL) {
 }
 
 // ---------- entry point ----------
+// One handler, two entry modes: Pages Functions (onRequest) and a Worker
+// default export (fetch). In Worker mode anything that is not /api/* is
+// served from the static assets binding.
 
-export const onRequest = async (context: { request: Request; env: Env }): Promise<Response> => {
-  const { request, env } = context;
+async function handle(request: Request, env: Env): Promise<Response> {
   const json = (data: unknown, status = 200) =>
     Response.json(data, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
   try {
@@ -293,9 +296,17 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
     if (m === "POST" && route === "learn") return json(await learn(env, request));
     if (m === "GET" && route === "top") return json(await top(env, url));
     if (m === "GET" && route === "unanswered") return json(await unanswered(env, url));
+    if (env.ASSETS) return env.ASSETS.fetch(request);
     return json({ error: "Not found." }, 404);
   } catch (e: any) {
     if (e instanceof HttpError) return json({ error: e.message }, e.status);
     return json({ error: "Something went wrong on the server." }, 500);
   }
+}
+
+export const onRequest = async (context: { request: Request; env: Env }): Promise<Response> =>
+  handle(context.request, context.env);
+
+export default {
+  fetch: async (request: Request, env: Env): Promise<Response> => handle(request, env),
 };

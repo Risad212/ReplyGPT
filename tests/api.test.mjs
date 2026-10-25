@@ -2,6 +2,7 @@
 // Usage: node tests/api.test.mjs   (Node 22.18 or newer runs the .ts file directly)
 import assert from "node:assert/strict";
 import { onRequest, chunkText } from "../functions/api/[[route]].ts";
+import worker from "../functions/api/[[route]].ts";
 
 const env = {
   SUPABASE_URL: "http://db", SUPABASE_SERVICE_KEY: "s",
@@ -26,6 +27,9 @@ const call = (method, path, body) =>
 
 // unknown route
 assert.equal((await call("GET", "/api/nope")).status, 404);
+// worker mode: same routing through the default export
+assert.deepEqual(await (await worker.fetch(new Request("http://x/api/plugins"), env)).json(), { plugins: ["A", "B"] });
+assert.equal((await worker.fetch(new Request("http://x/api/nope"), env)).status, 404);
 // plugins: sorted, unique
 assert.deepEqual(await (await call("GET", "/api/plugins")).json(), { plugins: ["A", "B"] });
 // chunking

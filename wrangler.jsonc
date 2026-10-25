@@ -1,0 +1,11 @@
+// Ask Desk as a single Worker: static files from public/ plus the API.
+// Deployed automatically by Cloudflare's Git integration.
+{
+  "name": "ask-desk",
+  "main": "functions/api/[[route]].ts",
+  "compatibility_date": "2025-11-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  }
+}
