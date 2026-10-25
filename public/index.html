@@ -191,7 +191,8 @@ function openGate(msg) {
 
 async function loadPlugins() {
   const r = await fetch(API + "/plugins", { headers: auth() });
-  if (r.status === 401) return false;
+  if (r.status === 401) return "bad";
+  if (!r.ok) return "err";
   const j = await r.json().catch(() => ({}));
   const names = j.plugins || [];
   pluginSel.replaceChildren();
@@ -204,7 +205,7 @@ async function loadPlugins() {
   }
   localStorage.setItem(LS_PLUGIN, pluginSel.value);
   pluginSel.disabled = false;
-  return true;
+  return "ok";
 }
 
 gateForm.onsubmit = async (e) => {
@@ -213,8 +214,8 @@ gateForm.onsubmit = async (e) => {
   if (!key) return;
   gateMsg.textContent = "Checking…";
   try {
-    const ok = await loadPlugins();
-    if (!ok) { openGate("Wrong access key. Try again."); return; }
+    const res = await loadPlugins();
+    if (res !== "ok") { openGate(res === "bad" ? "Wrong access key. Try again." : "Could not reach the server. Try again."); return; }
     localStorage.setItem(LS_KEY, key);
     gate.hidden = true;
     q.focus();
@@ -361,7 +362,10 @@ $("chips").onclick = (e) => {
 
 // boot
 if (key) {
-  loadPlugins().then((ok) => { if (!ok) { key = ""; localStorage.removeItem(LS_KEY); openGate("Wrong access key. Try again."); } }).catch(() => openGate("Network error — check the connection and try again."));
+  loadPlugins().then((res) => {
+    if (res === "bad") { key = ""; localStorage.removeItem(LS_KEY); openGate("Wrong access key. Try again."); }
+    else if (res !== "ok") openGate("Could not reach the server. Try again.");
+  }).catch(() => openGate("Network error — check the connection and try again."));
 } else {
   openGate("");
 }
