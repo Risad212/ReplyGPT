@@ -51,14 +51,17 @@ def sitemap_urls(url, depth=0):
 
 
 def robots_for(url):
+    """Read robots.txt with requests (urllib's default agent is often blocked)."""
     p = urlparse(url)
     rp = urllib.robotparser.RobotFileParser()
-    rp.set_url(f"{p.scheme}://{p.netloc}/robots.txt")
     try:
-        rp.read()
+        r = requests.get(f"{p.scheme}://{p.netloc}/robots.txt", headers={"User-Agent": UA}, timeout=30)
+        if r.status_code >= 400:
+            return None
+        rp.parse(r.text.splitlines())
+        return rp
     except Exception:
         return None
-    return rp
 
 
 def main():
