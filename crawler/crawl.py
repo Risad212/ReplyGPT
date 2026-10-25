@@ -4,7 +4,7 @@ Reads crawler/sites.json, walks each sitemap, extracts clean text from every pag
 with trafilatura, and sends each page to POST {API_URL}/api/docs with source_url set,
 so re-running replaces the old version of a page.
 
-Environment: API_URL (for example https://your-site.pages.dev), TEAM_KEY.
+Environment: API_URL (for example https://your-site.pages.dev). TEAM_KEY is optional.
 Optional: MAX_PAGES (default 300 per site), DELAY (seconds between requests, default 1).
 """
 import gzip
@@ -64,8 +64,8 @@ def robots_for(url):
 def main():
     api = os.environ.get("API_URL", "").rstrip("/")
     key = os.environ.get("TEAM_KEY", "")
-    if not api or not key:
-        print("Set API_URL and TEAM_KEY.")
+    if not api:
+        print("Set API_URL.")
         return 1
     max_pages = int(os.environ.get("MAX_PAGES", "300"))
     delay = float(os.environ.get("DELAY", "1"))
@@ -98,7 +98,7 @@ def main():
                 title = (meta.title if meta and meta.title else page)[:200]
                 r = requests.post(
                     f"{api}/api/docs",
-                    headers={"Authorization": f"Bearer {key}"},
+                    headers={"Authorization": f"Bearer {key}"} if key else {},
                     json={"title": title, "plugin": plugin, "source_url": page, "text": text},
                     timeout=60,
                 )

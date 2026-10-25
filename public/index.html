@@ -100,16 +100,6 @@
   button.send:disabled { opacity:.45; cursor:progress; }
   button.send:hover:not(:disabled) { filter:brightness(1.06); }
   .foot { text-align:center; font-size:11.5px; color:var(--muted); padding:10px 16px calc(14px + env(safe-area-inset-bottom)); }
-  .gate { position:fixed; inset:0; z-index:20; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px; }
-  .gate[hidden] { display:none; }
-  .gate .card {
-    width:100%; max-width:380px; background:var(--panel); border:1px solid var(--line);
-    border-radius:16px; padding:26px; box-shadow:0 10px 30px rgb(0 0 0 / .08);
-  }
-  .gate h2 { font-size:19px; font-weight:600; }
-  .gate .hint { color:var(--muted); font-size:13.5px; line-height:1.5; margin:6px 0 14px; }
-  .gate form { display:flex; gap:9px; }
-  .gate .gerr { color:var(--err); font-size:13px; min-height:18px; margin-top:10px; }
   @media (max-width:760px) {
     .wrap { padding:0; } .col { padding:16px 14px 12px; gap:12px; }
     .hello { padding-top:9vh; }
@@ -137,33 +127,17 @@
   </form>
   <div class="foot">Ask Desk can make mistakes — check important info before sending.</div>
 </div>
-<div class="gate" id="gate" hidden>
-  <div class="card">
-    <h2>Ask Desk</h2>
-    <p class="hint">Enter the team access key. It stays in this browser.</p>
-    <form id="gateForm">
-      <input id="gateKey" type="password" placeholder="Team access key" autocomplete="current-password" required>
-      <button class="send" type="submit" style="width:auto;border-radius:12px;padding:0 18px;">Open</button>
-    </form>
-    <div class="gerr" id="gateMsg"></div>
-  </div>
-</div>
 <script>
 const API = location.origin + "/api";
-const LS_KEY = "askdesk.key", LS_PLUGIN = "askdesk.plugin";
+const LS_PLUGIN = "askdesk.plugin";
 const $ = (id) => document.getElementById(id);
 const col = $("col"), f = $("f"), q = $("q"), send = $("send"),
-      pluginSel = $("plugin"), sub = $("sub"),
-      gate = $("gate"), gateForm = $("gateForm"),
-      gateKey = $("gateKey"), gateMsg = $("gateMsg");
-let key = localStorage.getItem(LS_KEY) || "";
+      pluginSel = $("plugin"), sub = $("sub");
 let plugin = localStorage.getItem(LS_PLUGIN) || "";
 let lastQ = "";
 const scroll = () => requestAnimationFrame(() => { col.parentElement.scrollTop = col.parentElement.scrollHeight; });
 
-const auth = () => key
-  ? { "Content-Type": "application/json", Authorization: "Bearer " + key }
-  : { "Content-Type": "application/json" };
+const headers = () => ({ "Content-Type": "application/json" });
 
 function add(cls, text) {
   const d = document.createElement("div");
@@ -183,17 +157,8 @@ function typing() {
   return a;
 }
 
-// ---------- access key ----------
-function openGate(msg) {
-  gateMsg.textContent = msg || "";
-  gate.hidden = false;
-  gateKey.value = "";
-  gateKey.focus();
-}
-
 async function loadPlugins() {
-  const r = await fetch(API + "/plugins", { headers: auth() });
-  if (r.status === 401) return "bad";
+  const r = await fetch(API + "/plugins", { headers: headers() });
   if (!r.ok) return "err";
   const j = await r.json().catch(() => ({}));
   const names = j.plugins || [];
@@ -221,22 +186,6 @@ pluginSel.onchange = () => {
   localStorage.setItem(LS_PLUGIN, plugin);
 };
 
-gateForm.onsubmit = async (e) => {
-  e.preventDefault();
-  key = gateKey.value.trim();
-  if (!key) return;
-  gateMsg.textContent = "Checking…";
-  try {
-    const res = await loadPlugins();
-    if (res !== "ok") { openGate(res === "bad" ? "Wrong access key. Try again." : "Could not reach the server. Try again."); return; }
-    localStorage.setItem(LS_KEY, key);
-    gate.hidden = true;
-    q.focus();
-  } catch {
-    openGate("Network error — check the connection and try again.");
-  }
-};
-
 // ---------- ask ----------
 f.onsubmit = async (e) => {
   e.preventDefault();
@@ -251,18 +200,10 @@ f.onsubmit = async (e) => {
   try {
     const r = await fetch(API + "/ask", {
       method: "POST",
-      headers: auth(),
+      headers: headers(),
       body: JSON.stringify({ question, plugin, asReply: true }),
     });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 401) {
-      a.remove();
-      key = "";
-      localStorage.removeItem(LS_KEY);
-      openGate("Wrong access key. Try again.");
-      q.value = question;
-      return;
-    }
     if (r.ok && j.answer) {
       holder.text = j.answer;
       a.replaceChildren(document.createTextNode(j.answer));
@@ -336,7 +277,7 @@ function addTools(a, question, holder, srcEl) {
     try {
       const r = await fetch(API + "/learn", {
         method: "POST",
-        headers: auth(),
+        headers: headers(),
         body: JSON.stringify({ question: lastQ || question, answer, plugin }),
       });
       const j = await r.json().catch(() => ({}));
@@ -369,20 +310,13 @@ function addTools(a, question, holder, srcEl) {
   scroll();
 }
 
-// boot: try to open the chat straight away; show the key screen only if the server requires one
+// boot: open the chat straight away; if the API is not reachable, show an inline notice
 (async () => {
-  const hadKey = !!key;
   try {
     const res = await loadPlugins();
-    if (res === "ok") return;                       // open chat, no gate
-    if (res === "bad") {
-      const msg = hadKey ? "Wrong access key. Try again." : "";
-      key = "";
-      localStorage.removeItem(LS_KEY);
-      openGate(msg);
-    } else openGate("Could not reach the server. Try again.");
+    if (res !== "ok") add("a err", "Could not reach the server. The API is not live yet — try again in a minute.");
   } catch {
-    openGate("Network error — check the connection and try again.");
+    add("a err", "Network error — check the connection and try again.");
   }
 })();
 </script>

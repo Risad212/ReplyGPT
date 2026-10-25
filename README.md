@@ -14,15 +14,14 @@ Not yet tried: a real Supabase project, a real AI provider, Cloudflare deploymen
 2. **LLM key:** create an API key at a provider with an open model (Groq, Together, Fireworks or OpenRouter).
 3. **GitHub:** push this folder to a new repository.
 4. **Cloudflare Pages:** connect the repository. Build command: none. Output directory: `public`. Add the variables from `.env.example`.
-5. Open the site, enter your `TEAM_KEY`, pick a plugin and ask a question. Documents are added by the crawler or with `curl` to `POST /api/docs` — see "Adding documents" below.
-6. **Weekly crawl (optional):** add `API_URL` and `TEAM_KEY` as GitHub repository secrets, and list your sites in `crawler/sites.json`.
+5. Open the site — the chat opens directly, there is no login. Pick a plugin and ask a question. Documents are added by the crawler or with `curl` to `POST /api/docs` — see "Adding documents" below.
+6. **Weekly crawl (optional):** add `API_URL` as a GitHub repository secret, and list your sites in `crawler/sites.json`.
 
 ## Before going live (checklist)
-1. Put the whole site behind **Cloudflare Access** (Zero Trust, free for small teams) so each person signs in with their work email. Keep `TEAM_KEY` as a second layer.
+1. Put the whole site behind **Cloudflare Access** (Zero Trust, free for small teams) so each person signs in with their work email. The API itself has no login.
 2. Add a **Cloudflare rate limiting rule** on `/api/*`.
 3. Set a **monthly spending limit and alerts** at the AI provider.
-4. Make `TEAM_KEY` a random string of 32+ characters. Store it only in Cloudflare and GitHub secrets. Change it whenever someone leaves.
-5. Keep the GitHub repository **private**. Turn on two-step login for GitHub, Cloudflare, Supabase and the AI provider.
+4. Keep the GitHub repository **private**. Turn on two-step login for GitHub, Cloudflare, Supabase and the AI provider.
 6. Turn on **Supabase backups** (or export the tables weekly) and test a restore once.
 7. Use a custom domain. HTTPS is automatic on Cloudflare.
 8. Do not put customers' personal data, passwords or keys in documents or questions.
@@ -36,11 +35,11 @@ Not included yet: personal logins and roles, an audit log, and a customer-facing
 ## Adding documents (no UI)
 The chat page has no document management. Two ways to add knowledge:
 - **Crawler:** list your site in `crawler/sites.json`, then run `python crawler/crawl.py` locally or let the weekly GitHub Action do it. Re-runs replace old versions.
-- **curl:** `POST /api/docs` with `Authorization: Bearer <TEAM_KEY>` and a JSON body `{title, plugin, text}`. Leave `plugin` empty (`""`) for shared info.
+- **curl:** `POST /api/docs` with a JSON body `{title, plugin, text}`. Leave `plugin` empty (`""`) for shared info.
 
 ```bash
 curl -X POST https://YOUR-SITE.pages.dev/api/docs \
-  -H "Authorization: Bearer $TEAM_KEY" -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" \
   -d '{"title":"Refund policy","plugin":"","text":"..."}'
 ```
 

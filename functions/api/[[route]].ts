@@ -2,7 +2,6 @@
 // Talks to Supabase through its REST interface and to any OpenAI-compatible LLM endpoint.
 
 interface Env {
-  TEAM_KEY: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_KEY: string;
   LLM_BASE_URL: string;
@@ -282,12 +281,6 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
   const json = (data: unknown, status = 200) =>
     Response.json(data, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
   try {
-    const supplied = request.headers.get("Authorization") || "";
-    // Auth is optional: when TEAM_KEY is not set, the API is open (the chat opens
-    // with no key screen). Set TEAM_KEY in Cloudflare to lock it down again.
-    if (env.TEAM_KEY && supplied !== `Bearer ${env.TEAM_KEY}`) {
-      return json({ error: "Wrong or missing access key." }, 401);
-    }
     const url = new URL(request.url);
     const route = url.pathname.replace(/^\/api\/?/, "").replace(/\/$/, "");
     const m = request.method;

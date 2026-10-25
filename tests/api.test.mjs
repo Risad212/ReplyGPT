@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { onRequest, chunkText } from "../functions/api/[[route]].ts";
 
 const env = {
-  TEAM_KEY: "k", SUPABASE_URL: "http://db", SUPABASE_SERVICE_KEY: "s",
+  SUPABASE_URL: "http://db", SUPABASE_SERVICE_KEY: "s",
   LLM_BASE_URL: "http://llm/v1", LLM_MODEL: "m", LLM_API_KEY: "a",
 };
 const calls = [];
@@ -21,17 +21,9 @@ globalThis.fetch = async (url, init = {}) => {
   return j(null, 204);
 };
 
-const call = (method, path, body, key = "k") =>
-  onRequest({ request: new Request("http://x" + path, { method, headers: { Authorization: `Bearer ${key}` }, body: body ? JSON.stringify(body) : undefined }), env });
+const call = (method, path, body) =>
+  onRequest({ request: new Request("http://x" + path, { method, headers: {}, body: body ? JSON.stringify(body) : undefined }), env });
 
-// auth
-assert.equal((await call("GET", "/api/docs", null, "bad")).status, 401);
-// auth is optional: no TEAM_KEY in env -> open API
-const noKey = { ...env, TEAM_KEY: "" };
-assert.equal(
-  (await onRequest({ request: new Request("http://x/api/plugins", { headers: {} }), env: noKey })).status,
-  200
-);
 // unknown route
 assert.equal((await call("GET", "/api/nope")).status, 404);
 // plugins: sorted, unique
