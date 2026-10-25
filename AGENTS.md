@@ -52,11 +52,11 @@ All routes live under `/api/` and need the header `Authorization: Bearer <TEAM_K
 6. Set a request timeout and return a clear error message if the LLM call fails.
 
 ## Front end (`public/index.html`) — chat only
-The page is a single-column chat. There is no admin/sources panel and no document management in the UI: documents arrive through the crawler or `POST /api/docs` (curl, task 6 tooling later).
-- Controls: a plugin dropdown (from `GET /api/plugins`, remembered in `localStorage`) above the question box with an Ask button, plus suggested question chips. If no plugin exists yet, the dropdown shows "All documents".
-- Leak rule: when at least one plugin exists, the dropdown only lists plugins — there is no "all plugins" option, and every ask sends the selected plugin. Blank plugin (search everything) is allowed only while no plugin documents exist at all.
+The page is a single-column chat that looks like a minimal ChatGPT: header, centered greeting, and one pill-shaped composer at the bottom (text input + round arrow button, a small disclaimer line under it). There is no admin/sources panel, no upload, no document management in the UI: documents arrive through the crawler or `POST /api/docs` (curl, task 6 tooling later).
+- Plugin control lives in the header: with zero plugins the header shows "All documents"; with exactly one plugin it shows that name and there is no dropdown; with several plugins a small header dropdown appears (remembered in `localStorage`). Every ask sends the selected plugin.
+- Leak rule: when at least one plugin exists, there is no "all plugins" option for asking. Blank plugin (search everything) is allowed only while no plugin documents exist at all.
 - Under each answer: sources used, **Copy** (copies just the reply text, never on error messages), **Correct it** (editable text, then save through `/api/learn`; the corrected text replaces the reply in the chat).
-- First visit asks for the team access key in a small overlay and keeps it in `localStorage` (`askdesk.key`). The key is never hardcoded in the page. A `401` clears the stored key and re-opens the overlay with a clear message.
+- First visit asks for the team access key in a small overlay and keeps it in `localStorage` (`askdesk.key`). The key is never hardcoded in the page. A `401` — or any failure to reach the API — clears the stored key and re-opens the overlay with a clear message.
 - Light and dark themes through CSS variables and `prefers-color-scheme`. Keyboard focus visible. No horizontal scrolling at 360px.
 - Colors: accent `#1f6b5a` (light) and `#5fc2a8` (dark). Font: IBM Plex Sans with a system fallback.
 
