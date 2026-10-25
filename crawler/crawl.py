@@ -7,6 +7,8 @@ so re-running replaces the old version of a page.
 Environment: API_URL (for example https://your-site.pages.dev), TEAM_KEY.
 Optional: MAX_PAGES (default 300 per site), DELAY (seconds between requests, default 1).
 """
+import gzip
+import io
 import json
 import os
 import sys
@@ -20,6 +22,14 @@ import trafilatura
 
 UA = "AskDeskCrawler/1.0 (+support knowledge base updater)"
 MIN_CHARS = 200
+NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+
+
+def sitemap_root(content):
+    """Parse a sitemap, handling gzip."""
+    if content[:2] == b"\x1f\x8b":
+        content = gzip.decompress(content)
+    return ET.fromstring(content)
 
 
 def sitemap_urls(url, depth=0):
@@ -28,9 +38,11 @@ def sitemap_urls(url, depth=0):
         return []
     r = requests.get(url, headers={"User-Agent": UA}, timeout=30)
     r.raise_for_status()
-    root = ET.fromstring(r.content)
-    locs = [e.text.strip() for e in root.iter() if e.tag.endswith("}loc") or e.tag == "loc"]
-    if root.tag.endswith("sitemapindex"):
+    root = sitemap_root(r.content)
+    locs = [e.text.strip() for e in root.iter(NS + "loc") if e.text]
+    if not locs:  # sitemap without the standard xmlns
+        locs = [e.text.strip() for e in root.iter() if e.tag.endswith("loc") and e.text]
+    if root.tag in (NS + "sitemapindex", "sitemapindex"):
         pages = []
         for child in locs:
             pages.extend(sitemap_urls(child, depth + 1))

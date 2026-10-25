@@ -30,17 +30,18 @@ See `.env.example`: `TEAM_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `LLM_BAS
 Already written in `supabase/schema.sql`: `documents`, `chunks` (with full-text column), `questions`, and the `search_chunks` function. Do not change the schema without explaining why.
 
 ## API contract
-All routes live under `/api/` and need the header `Authorization: Bearer <TEAM_KEY>`. Return JSON. Return `401` for a wrong key.
+All routes live under `/api/` and need the header `Authorization: Bearer <TEAM_KEY>`. Return JSON. Return `401` for a wrong key. The chat page uses `plugins`, `ask` and `learn`; the rest are for curl, scripts and the crawler.
 
 | Method and path | Purpose |
 |---|---|
 | `GET /api/plugins` | Distinct plugin names from `documents` (excluding blank). |
-| `GET /api/docs` | List documents: id, title, plugin, kind, source_url, created_at. |
-| `POST /api/docs` | Body `{title, plugin, kind?, source_url?, text}`. Split `text` into chunks of about 700 to 1200 characters on blank lines. Insert the document and its chunks. If `source_url` already exists for the same plugin, replace the old document (used by the crawler). |
-| `DELETE /api/docs?id=<uuid>` | Delete a document (chunks cascade). |
+| `GET /api/docs` | List documents: id, title, plugin, kind, source_url, created_at. API-only. |
+| `POST /api/docs` | Body `{title, plugin, kind?, source_url?, text}`. Split `text` into chunks of about 700 to 1200 characters on blank lines. Insert the document and its chunks. If `source_url` already exists for the same plugin, replace the old document (used by the crawler). API-only. |
+| `DELETE /api/docs?id=<uuid>` | Delete a document (chunks cascade). API-only. |
 | `POST /api/ask` | Body `{question, plugin?, asReply?}`. Search chunks, call the LLM, log the question. Return `{answer, sources:[{title, plugin, kind}], found:boolean}`. |
 | `POST /api/learn` | Body `{question, answer, plugin}`. Save as a `kind='learned'` document titled `Learned: <question>` (replace one with the same title and plugin). |
-| `GET /api/top?plugin=` | Top 10 most asked questions: text, count, last_asked. |
+| `GET /api/top?plugin=` | Top 10 most asked questions: text, count, last_asked. API-only. |
+| `GET /api/unanswered?plugin=` | Questions with no matching document: text, count, last_asked. API-only. |
 
 ### `/api/ask` logic
 1. Normalize the question (lowercase, trim). Upsert it into `questions` (increase `count`, set `last_asked`).
@@ -50,13 +51,12 @@ All routes live under `/api/` and need the header `Authorization: Bearer <TEAM_K
 5. System prompt (keep it short): answer only from the passages; name the document used; if `asReply`, write a short, friendly message the agent can send to the customer; if the passages conflict, trust `Learned:` ones; never invent features, versions, prices or integrations.
 6. Set a request timeout and return a clear error message if the LLM call fails.
 
-## Front end (`public/index.html`)
-Match the design of the earlier Ask Desk prototype:
-- Two areas: a sources panel on the left (Most asked, document list, add files or paste text with a plugin name field) and a chat on the right.
-- On phones (under 760px) the sources panel collapses into a tap-to-open bar above the chat.
-- Controls: plugin dropdown, "Write as customer reply" checkbox, question box with an Ask button, suggested question buttons.
-- Under each answer: sources used, **Copy**, **Save as learned answer**, **Correct it** (editable text, then save through `/api/learn`).
-- First visit asks for the team access key and keeps it in `localStorage`. Wrong key shows a clear message.
+## Front end (`public/index.html`) — chat only
+The page is a single-column chat. There is no admin/sources panel and no document management in the UI: documents arrive through the crawler or `POST /api/docs` (curl, task 6 tooling later).
+- Controls: a plugin dropdown (from `GET /api/plugins`, remembered in `localStorage`) above the question box with an Ask button, plus suggested question chips. If no plugin exists yet, the dropdown shows "All documents".
+- Leak rule: when at least one plugin exists, the dropdown only lists plugins — there is no "all plugins" option, and every ask sends the selected plugin. Blank plugin (search everything) is allowed only while no plugin documents exist at all.
+- Under each answer: sources used, **Copy** (copies just the reply text, never on error messages), **Correct it** (editable text, then save through `/api/learn`; the corrected text replaces the reply in the chat).
+- First visit asks for the team access key in a small overlay and keeps it in `localStorage` (`askdesk.key`). The key is never hardcoded in the page. A `401` clears the stored key and re-opens the overlay with a clear message.
 - Light and dark themes through CSS variables and `prefers-color-scheme`. Keyboard focus visible. No horizontal scrolling at 360px.
 - Colors: accent `#1f6b5a` (light) and `#5fc2a8` (dark). Font: IBM Plex Sans with a system fallback.
 
@@ -67,7 +67,7 @@ Match the design of the earlier Ask Desk prototype:
 - `.github/workflows/crawl.yml` runs it weekly and on demand, with secrets from GitHub.
 
 ## Current state
-Tasks 1 (schema), 2 (API), 3 (page) and 5 (crawler) are written and checked against fakes only. `/api/unanswered` was added to the contract (questions with no matching document). Task 4 onward needs a real Supabase project and AI key. Run `node tests/api.test.mjs` after any API change.
+Tasks 1 (schema), 2 (API), 3 (page) and 5 (crawler) are written. The page is chat-only: plugin dropdown, key overlay, sources, copy and "Correct it" (learn) are in; the admin/sources panel was deliberately dropped — chat is the whole app. Everything is checked against fakes only. `/api/unanswered` is in the contract (questions with no matching document). Task 4 onward needs a real Supabase project and AI key. Run `node tests/api.test.mjs` after any API change.
 
 ## Task list (do in order, test each one)
 1. Create the Supabase project, run `supabase/schema.sql`, and confirm `search_chunks('refund policy', 'WP Smart Pay', 6)` runs.
@@ -75,11 +75,11 @@ Tasks 1 (schema), 2 (API), 3 (page) and 5 (crawler) are written and checked agai
 3. Build `public/index.html` against the API.
 4. Test with 20 sample documents and 10 real questions in English and Bangla. Fix retrieval problems (term matching, chunk size, ranking).
 5. Write the crawler and workflow.
-6. Add per-plugin counts to "Most asked", and a "no answer found" list so the team knows what to document next.
+6. Curl-only tooling for counts (optional): a small script or shortcut that prints `GET /api/top` and `GET /api/unanswered`. No UI.
 7. Later, only if needed: login with roles through Supabase Auth, and pgvector search.
 
 ## Definition of done
-- A support agent can add documents, pick a plugin, ask a question and copy a reply in under a minute.
+- A support agent can open the page, pick a plugin, ask a question and copy a reply in under a minute.
 - Wrong or missing information is never invented.
 - Works at 360px wide and on desktop.
 - README lets a non-developer deploy it in under 30 minutes.

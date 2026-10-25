@@ -5,7 +5,7 @@ A small support tool: pick a plugin, ask a customer's question, get a reply writ
 Open-source code, no servers to run: Cloudflare Pages (site and API), Supabase (database), a hosted open-model API, GitHub Actions (weekly website crawl).
 
 ## Status
-Built: database schema, API, web page, website crawler and weekly workflow. Checked locally: the search function on Postgres (English and Bangla), the API against a fake database and fake AI (`node tests/api.test.mjs`, Node 22.18 or newer), and the page at desktop and phone width with a fake API.
+Built: database schema, API, chat page, website crawler and weekly workflow. Checked locally: the search function on Postgres (English and Bangla), the API against a fake database and fake AI (`node tests/api.test.mjs`, Node 22.18 or newer), and the page at desktop and phone width with a fake API.
 
 Not yet tried: a real Supabase project, a real AI provider, Cloudflare deployment and the crawler on a real site. Do the setup below, then work through tasks 4 to 7 in `AGENTS.md` (test with real questions, tune search, per-plugin counts, optional login and vector search). OpenCode can help: "Read AGENTS.md and do task 4."
 
@@ -14,7 +14,7 @@ Not yet tried: a real Supabase project, a real AI provider, Cloudflare deploymen
 2. **LLM key:** create an API key at a provider with an open model (Groq, Together, Fireworks or OpenRouter).
 3. **GitHub:** push this folder to a new repository.
 4. **Cloudflare Pages:** connect the repository. Build command: none. Output directory: `public`. Add the variables from `.env.example`.
-5. Open the site, enter your `TEAM_KEY`, add your first documents and ask a question.
+5. Open the site, enter your `TEAM_KEY`, pick a plugin and ask a question. Documents are added by the crawler or with `curl` to `POST /api/docs` — see "Adding documents" below.
 6. **Weekly crawl (optional):** add `API_URL` and `TEAM_KEY` as GitHub repository secrets, and list your sites in `crawler/sites.json`.
 
 ## Before going live (checklist)
@@ -33,9 +33,20 @@ Not yet tried: a real Supabase project, a real AI provider, Cloudflare deploymen
 
 Not included yet: personal logins and roles, an audit log, and a customer-facing mode. See `AGENTS.md` task 7.
 
+## Adding documents (no UI)
+The chat page has no document management. Two ways to add knowledge:
+- **Crawler:** list your site in `crawler/sites.json`, then run `python crawler/crawl.py` locally or let the weekly GitHub Action do it. Re-runs replace old versions.
+- **curl:** `POST /api/docs` with `Authorization: Bearer <TEAM_KEY>` and a JSON body `{title, plugin, text}`. Leave `plugin` empty (`""`) for shared info.
+
+```bash
+curl -X POST https://YOUR-SITE.pages.dev/api/docs \
+  -H "Authorization: Bearer $TEAM_KEY" -H "Content-Type: application/json" \
+  -d '{"title":"Refund policy","plugin":"","text":"..."}'
+```
+
 ## Data tips
 - One topic per document. Use `Q:` and `A:` pairs for approved answers.
-- Put the plugin name in the "Adding to plugin" field. Leave it blank for shared info (refunds, licensing, payment).
+- Set the plugin name on plugin-specific documents. Leave it blank for shared info (refunds, licensing, payment).
 - Do not add customers' personal data.
 
 ## License

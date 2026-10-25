@@ -53,35 +53,69 @@
   @keyframes rise { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
   .q { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:5px; }
   .a { align-self:flex-start; background:var(--panel); border:1px solid var(--line); box-shadow:0 1px 2px rgb(0 0 0 / .04); border-bottom-left-radius:5px; }
-  .a .copy {
-    display:inline-flex; align-items:center; gap:5px; margin-top:9px; font:inherit; font-size:12.5px;
+  .src { margin-top:8px; font-size:12.5px; color:var(--muted); }
+  .tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:9px; }
+  .tools .copy {
+    display:inline-flex; align-items:center; gap:5px; font:inherit; font-size:12.5px;
     color:var(--accent); background:var(--accent-soft); border:0; border-radius:8px; padding:4px 11px; cursor:pointer;
   }
-  .tools { align-self:flex-start; margin-top:-4px; }
+  .tools .fixbtn {
+    font:inherit; font-size:12.5px; color:var(--muted); background:none;
+    border:1px solid var(--line); border-radius:8px; padding:4px 11px; cursor:pointer;
+  }
+  .tools .fixbtn:hover, .tools .fixbtn[aria-expanded="true"] { color:var(--accent); border-color:var(--accent); }
+  .tools .savebtn {
+    font:inherit; font-size:12.5px; font-weight:600; color:#fff;
+    background:var(--accent); border:0; border-radius:8px; padding:4px 11px; cursor:pointer;
+  }
+  .tools .savebtn:disabled { opacity:.45; cursor:progress; }
+  .tools .note { font-size:12.5px; color:var(--accent); }
+  .fixbox textarea {
+    display:block; width:100%; min-height:110px; margin-top:9px; resize:vertical;
+    font:inherit; font-size:14.5px; line-height:1.5; padding:10px 12px;
+    border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink);
+  }
+  .fixbox textarea:focus { outline:2px solid var(--accent); outline-offset:1px; }
   .dots { display:inline-flex; gap:5px; padding:4px 2px; }
   .dots i { width:6px; height:6px; border-radius:50%; background:var(--muted); opacity:.4; animation:pulse 1.2s infinite; }
   .dots i:nth-child(2) { animation-delay:.15s; } .dots i:nth-child(3) { animation-delay:.3s; }
   @keyframes pulse { 0%, 60%, 100% { opacity:.35; transform:none; } 30% { opacity:1; transform:translateY(-2px); } }
   .err { color:var(--err); }
-  form {
-    display:flex; gap:9px; padding:12px 20px calc(12px + env(safe-area-inset-bottom));
+  #f {
+    display:flex; flex-wrap:wrap; gap:9px;
+    padding:12px 20px calc(12px + env(safe-area-inset-bottom));
     border-top:1px solid var(--line); background:var(--panel); max-width:680px; margin:0 auto; width:100%;
   }
-  input, textarea {
-    flex:1; font:inherit; font-size:16px; padding:13px 16px; border-radius:14px;
+  .bar { display:flex; align-items:center; gap:9px; flex:1 1 100%; }
+  .bar label { font-size:12.5px; color:var(--muted); }
+  input, textarea, select {
+    font:inherit; font-size:16px; padding:13px 16px; border-radius:14px;
     border:1px solid var(--line); background:var(--bg); color:var(--ink); min-width:0;
   }
   input::placeholder { color:var(--muted); }
-  input:focus, button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .bar select { flex:1; padding:9px 12px; border-radius:10px; font-size:14px; cursor:pointer; }
+  select:disabled { opacity:.5; }
+  input:focus, textarea:focus, select:focus, button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
   button.send {
     font:inherit; font-weight:600; background:var(--accent); color:#fff; border:0;
     border-radius:14px; padding:0 20px; cursor:pointer; transition:opacity .15s;
   }
   button.send:disabled { opacity:.45; cursor:progress; }
   button.send:hover:not(:disabled) { filter:brightness(1.06); }
+  .gate { position:fixed; inset:0; z-index:20; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px; }
+  .gate[hidden] { display:none; }
+  .gate .card {
+    width:100%; max-width:380px; background:var(--panel); border:1px solid var(--line);
+    border-radius:16px; padding:26px; box-shadow:0 10px 30px rgb(0 0 0 / .08);
+  }
+  .gate h2 { font-size:19px; font-weight:600; }
+  .gate .hint { color:var(--muted); font-size:13.5px; line-height:1.5; margin:6px 0 14px; }
+  .gate form { display:flex; gap:9px; }
+  .gate .gerr { color:var(--err); font-size:13px; min-height:18px; margin-top:10px; }
   @media (max-width:760px) {
     .wrap { padding:0; } .col { padding:16px 14px 12px; gap:12px; }
     .hello { padding-top:28px; } header .sub { display:none; }
+    #f { padding-left:14px; padding-right:14px; }
   }
 </style>
 </head>
@@ -98,18 +132,41 @@
     </div>
   </div>
 </div></div>
-<form id="f"><input id="q" placeholder="Type your question…" autocomplete="off" enterkeyhint="send" autofocus><button class="send" id="send">Ask</button></form>
+<div id="f-wrap"><form id="f">
+  <div class="bar">
+    <label for="plugin">Plugin</label>
+    <select id="plugin" disabled><option>Loading…</option></select>
+  </div>
+  <input id="q" placeholder="Type your question…" autocomplete="off" enterkeyhint="send" autofocus><button class="send" id="send">Ask</button>
+</form></div>
+<div class="gate" id="gate" hidden>
+  <div class="card">
+    <h2>Ask Desk</h2>
+    <p class="hint">Enter the team access key. It stays in this browser.</p>
+    <form id="gateForm">
+      <input id="gateKey" type="password" placeholder="Team access key" autocomplete="current-password" required>
+      <button class="send" type="submit">Open</button>
+    </form>
+    <div class="gerr" id="gateMsg"></div>
+  </div>
+</div>
 <script>
-const API = location.origin + "/api/ask";
-const TEAM_KEY = "urmXalKI1DlM4NL2loLUmMHQgcobZs1";
-const col = document.getElementById("col"), f = document.getElementById("f"),
-      q = document.getElementById("q"), send = document.getElementById("send");
+const API = location.origin + "/api";
+const LS_KEY = "askdesk.key", LS_PLUGIN = "askdesk.plugin";
+const $ = (id) => document.getElementById(id);
+const col = $("col"), f = $("f"), q = $("q"), send = $("send"),
+      pluginSel = $("plugin"), gate = $("gate"), gateForm = $("gateForm"),
+      gateKey = $("gateKey"), gateMsg = $("gateMsg");
+let key = localStorage.getItem(LS_KEY) || "";
+let lastQ = "";
 const scroll = () => requestAnimationFrame(() => { col.parentElement.scrollTop = col.parentElement.scrollHeight; });
+
+const auth = () => ({ "Content-Type": "application/json", Authorization: "Bearer " + key });
 
 function add(cls, text) {
   const d = document.createElement("div");
   d.className = "msg " + cls;
-  d.textContent = text;
+  if (text) d.textContent = text;
   col.appendChild(d);
   scroll();
   return d;
@@ -124,44 +181,190 @@ function typing() {
   return a;
 }
 
+// ---------- access key ----------
+function openGate(msg) {
+  gateMsg.textContent = msg || "";
+  gate.hidden = false;
+  gateKey.value = "";
+  gateKey.focus();
+}
+
+async function loadPlugins() {
+  const r = await fetch(API + "/plugins", { headers: auth() });
+  if (r.status === 401) return false;
+  const j = await r.json().catch(() => ({}));
+  const names = j.plugins || [];
+  pluginSel.replaceChildren();
+  if (!names.length) {
+    pluginSel.add(new Option("All documents", ""));
+  } else {
+    for (const p of names) pluginSel.add(new Option(p, p));
+    const saved = localStorage.getItem(LS_PLUGIN) || "";
+    pluginSel.value = names.includes(saved) ? saved : names[0];
+  }
+  localStorage.setItem(LS_PLUGIN, pluginSel.value);
+  pluginSel.disabled = false;
+  return true;
+}
+
+gateForm.onsubmit = async (e) => {
+  e.preventDefault();
+  key = gateKey.value.trim();
+  if (!key) return;
+  gateMsg.textContent = "Checking…";
+  try {
+    const ok = await loadPlugins();
+    if (!ok) { openGate("Wrong access key. Try again."); return; }
+    localStorage.setItem(LS_KEY, key);
+    gate.hidden = true;
+    q.focus();
+  } catch {
+    openGate("Network error — check the connection and try again.");
+  }
+};
+
+// ---------- ask ----------
 f.onsubmit = async (e) => {
   e.preventDefault();
   const question = q.value.trim();
   if (!question) return;
   q.value = "";
+  lastQ = question;
   add("q", question);
   send.disabled = true;
   const a = typing();
+  let holder = { text: "" };
   try {
-    const r = await fetch(API, {
+    const r = await fetch(API + "/ask", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + TEAM_KEY },
-      body: JSON.stringify({ question, asReply: true }),
+      headers: auth(),
+      body: JSON.stringify({ question, plugin: pluginSel.value, asReply: true }),
     });
     const j = await r.json().catch(() => ({}));
-    const ok = r.ok && j.answer;
-    a.textContent = ok ? j.answer : "Something went wrong (" + r.status + ").";
-    if (!ok) a.classList.add("err");
+    if (r.status === 401) {
+      a.remove();
+      key = "";
+      localStorage.removeItem(LS_KEY);
+      openGate("Wrong access key. Try again.");
+      q.value = question;
+      return;
+    }
+    if (r.ok && j.answer) {
+      holder.text = j.answer;
+      a.replaceChildren(document.createTextNode(j.answer));
+      if (j.sources && j.sources.length) {
+        const s = document.createElement("div");
+        s.className = "src";
+        s.textContent = "Sources: " + j.sources.map((x) => x.title + (x.plugin ? " — " + x.plugin : "")).join(" · ");
+        a.appendChild(s);
+        addTools(a, question, holder, s);
+      } else {
+        addTools(a, question, holder, null);
+      }
+    } else {
+      a.textContent = (j && j.error) || "Something went wrong (" + r.status + ").";
+      a.classList.add("err");
+    }
   } catch {
     a.textContent = "Network error — check the connection.";
     a.classList.add("err");
-  }
-  if (a.textContent !== "Network error — check the connection.") {
-    const b = document.createElement("button");
-    b.className = "copy";
-    b.type = "button";
-    b.textContent = "Copy reply";
-    b.onclick = () => { navigator.clipboard.writeText(a.textContent); b.textContent = "Copied ✓"; setTimeout(() => b.textContent = "Copy reply", 1300); };
-    a.appendChild(b);
   }
   send.disabled = false;
   q.focus();
   scroll();
 };
 
-document.getElementById("chips").onclick = (e) => {
+function addTools(a, question, holder, srcEl) {
+  const tools = document.createElement("div");
+  tools.className = "tools";
+
+  const copy = document.createElement("button");
+  copy.className = "copy";
+  copy.type = "button";
+  copy.textContent = "Copy reply";
+  copy.onclick = () => {
+    navigator.clipboard.writeText(holder.text);
+    copy.textContent = "Copied ✓";
+    setTimeout(() => (copy.textContent = "Copy reply"), 1300);
+  };
+  tools.appendChild(copy);
+
+  const fixbtn = document.createElement("button");
+  fixbtn.className = "fixbtn";
+  fixbtn.type = "button";
+  fixbtn.setAttribute("aria-expanded", "false");
+  fixbtn.textContent = "Correct it";
+  tools.appendChild(fixbtn);
+
+  const fixbox = document.createElement("div");
+  fixbox.className = "fixbox";
+  fixbox.hidden = true;
+  fixbtn.onclick = () => {
+    fixbox.hidden = !fixbox.hidden;
+    fixbtn.setAttribute("aria-expanded", String(!fixbox.hidden));
+    if (!fixbox.hidden) {
+      ta.value = holder.text;
+      ta.focus();
+    }
+  };
+
+  const ta = document.createElement("textarea");
+  ta.placeholder = "Edit the reply, then save. The corrected answer will be remembered.";
+
+  const save = document.createElement("button");
+  save.className = "savebtn";
+  save.type = "button";
+  save.textContent = "Save correction";
+  save.onclick = async () => {
+    const answer = ta.value.trim();
+    if (!answer) return;
+    save.disabled = true;
+    try {
+      const r = await fetch(API + "/learn", {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({ question: lastQ || question, answer, plugin: pluginSel.value }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.id) {
+        holder.text = answer;
+        fixbox.remove();
+        fixbtn.remove();
+        note.textContent = "Saved. This reply is now remembered.";
+        const keep = [document.createTextNode(answer)];
+        if (srcEl) keep.push(srcEl);
+        keep.push(tools);
+        a.replaceChildren(...keep);
+      } else {
+        note.textContent = (j && j.error) || "Could not save (" + r.status + ").";
+      }
+    } catch {
+      note.textContent = "Network error — try again.";
+    }
+    save.disabled = false;
+  };
+
+  const note = document.createElement("span");
+  note.className = "note";
+  tools.appendChild(note);
+
+  fixbox.appendChild(ta);
+  fixbox.appendChild(save);
+  a.appendChild(tools);
+  a.appendChild(fixbox);
+  scroll();
+}
+
+$("chips").onclick = (e) => {
   if (e.target.classList.contains("chip")) { q.value = e.target.textContent; q.focus(); }
 };
+
+// boot
+if (key) {
+  loadPlugins().then((ok) => { if (!ok) { key = ""; localStorage.removeItem(LS_KEY); openGate("Wrong access key. Try again."); } }).catch(() => openGate("Network error — check the connection and try again."));
+} else {
+  openGate("");
+}
 </script>
 </body>
 </html>
