@@ -26,6 +26,12 @@ const call = (method, path, body, key = "k") =>
 
 // auth
 assert.equal((await call("GET", "/api/docs", null, "bad")).status, 401);
+// auth is optional: no TEAM_KEY in env -> open API
+const noKey = { ...env, TEAM_KEY: "" };
+assert.equal(
+  (await onRequest({ request: new Request("http://x/api/plugins", { headers: {} }), env: noKey })).status,
+  200
+);
 // unknown route
 assert.equal((await call("GET", "/api/nope")).status, 404);
 // plugins: sorted, unique

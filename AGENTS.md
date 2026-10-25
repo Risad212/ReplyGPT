@@ -10,7 +10,7 @@ The company sells several plugins (a WordPress payment plugin is the first; late
 ## Hard rules
 1. **Fully open-source code, no self-hosting.** Use only managed free tiers: Cloudflare Pages + Pages Functions, Supabase (Postgres), a hosted open-model API, GitHub Actions. No servers to run.
 2. **No build step for the front end.** One static `public/index.html` with plain JS and CSS. No React, no bundler.
-3. **No secrets in the browser.** API keys live only in Cloudflare environment variables. The browser sends only the team access key.
+3. **No secrets in the browser.** API keys live only in Cloudflare environment variables. `TEAM_KEY` is optional: leave it unset and the chat opens with no key screen (API open to anyone with the link); set it and the page asks once.
 4. **Answer only from retrieved passages.** If nothing relevant is found, say so. Then give a clearly marked general-knowledge answer, or say it does not know. Never invent plugin features, integrations or prices.
 5. **Learned answers win.** Passages from corrected answers (`kind = 'learned'`) rank above normal documents when they conflict.
 6. **Bangla must work.** Queries and documents may be in Bangla or English.
@@ -56,7 +56,7 @@ The page is a single-column chat that looks like a minimal ChatGPT: header, cent
 - Plugin control lives in the header: with zero plugins the header shows "All documents"; with exactly one plugin it shows that name and there is no dropdown; with several plugins a small header dropdown appears (remembered in `localStorage`). Every ask sends the selected plugin.
 - Leak rule: when at least one plugin exists, there is no "all plugins" option for asking. Blank plugin (search everything) is allowed only while no plugin documents exist at all.
 - Under each answer: sources used, **Copy** (copies just the reply text, never on error messages), **Correct it** (editable text, then save through `/api/learn`; the corrected text replaces the reply in the chat).
-- First visit asks for the team access key in a small overlay and keeps it in `localStorage` (`askdesk.key`). The key is never hardcoded in the page. A `401` — or any failure to reach the API — clears the stored key and re-opens the overlay with a clear message.
+- First visit opens the chat directly. Only when `TEAM_KEY` is set on the server does a small overlay ask for the team access key, kept in `localStorage` (`askdesk.key`). The key is never hardcoded in the page. A `401` — or any failure to reach the API — clears the stored key and re-opens the overlay with a clear message.
 - Light and dark themes through CSS variables and `prefers-color-scheme`. Keyboard focus visible. No horizontal scrolling at 360px.
 - Colors: accent `#1f6b5a` (light) and `#5fc2a8` (dark). Font: IBM Plex Sans with a system fallback.
 

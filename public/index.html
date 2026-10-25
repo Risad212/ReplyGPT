@@ -161,7 +161,9 @@ let plugin = localStorage.getItem(LS_PLUGIN) || "";
 let lastQ = "";
 const scroll = () => requestAnimationFrame(() => { col.parentElement.scrollTop = col.parentElement.scrollHeight; });
 
-const auth = () => ({ "Content-Type": "application/json", Authorization: "Bearer " + key });
+const auth = () => key
+  ? { "Content-Type": "application/json", Authorization: "Bearer " + key }
+  : { "Content-Type": "application/json" };
 
 function add(cls, text) {
   const d = document.createElement("div");
@@ -367,15 +369,22 @@ function addTools(a, question, holder, srcEl) {
   scroll();
 }
 
-// boot
-if (key) {
-  loadPlugins().then((res) => {
-    if (res === "bad") { key = ""; localStorage.removeItem(LS_KEY); openGate("Wrong access key. Try again."); }
-    else if (res !== "ok") openGate("Could not reach the server. Try again.");
-  }).catch(() => openGate("Network error — check the connection and try again."));
-} else {
-  openGate("");
-}
+// boot: try to open the chat straight away; show the key screen only if the server requires one
+(async () => {
+  const hadKey = !!key;
+  try {
+    const res = await loadPlugins();
+    if (res === "ok") return;                       // open chat, no gate
+    if (res === "bad") {
+      const msg = hadKey ? "Wrong access key. Try again." : "";
+      key = "";
+      localStorage.removeItem(LS_KEY);
+      openGate(msg);
+    } else openGate("Could not reach the server. Try again.");
+  } catch {
+    openGate("Network error — check the connection and try again.");
+  }
+})();
 </script>
 </body>
 </html>

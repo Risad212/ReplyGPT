@@ -283,7 +283,9 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
     Response.json(data, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
   try {
     const supplied = request.headers.get("Authorization") || "";
-    if (!env.TEAM_KEY || supplied !== `Bearer ${env.TEAM_KEY}`) {
+    // Auth is optional: when TEAM_KEY is not set, the API is open (the chat opens
+    // with no key screen). Set TEAM_KEY in Cloudflare to lock it down again.
+    if (env.TEAM_KEY && supplied !== `Bearer ${env.TEAM_KEY}`) {
       return json({ error: "Wrong or missing access key." }, 401);
     }
     const url = new URL(request.url);
