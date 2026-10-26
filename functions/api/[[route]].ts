@@ -211,7 +211,7 @@ function isSmallTalk(q: string): boolean {
 
 function readHistory(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
-  return v.slice(-6)
+  return v.slice(-24)
     .map((m: any) => `${m && m.role === "assistant" ? "Assistant" : "Agent"}: ${clean(m && m.content, 800)}`)
     .filter((l) => l.length > 10);
 }

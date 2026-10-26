@@ -88,6 +88,48 @@
     background:var(--bg); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
   }
   button.send.stop { background:var(--ink); }
+  .burger {
+    background:none; border:0; cursor:pointer; font-size:18px; line-height:1;
+    color:var(--ink); padding:6px 9px; border-radius:8px; margin-right:2px;
+  }
+  .burger:hover { background:var(--panel); }
+  .scrim {
+    position:fixed; inset:0; background:rgb(0 0 0/.35); opacity:0;
+    pointer-events:none; transition:opacity .2s; z-index:29;
+  }
+  .scrim.open { opacity:1; pointer-events:auto; }
+  .drawer {
+    position:fixed; top:0; bottom:0; left:0; width:min(300px, 82vw); z-index:30;
+    background:var(--panel); border-right:1px solid var(--line);
+    transform:translateX(-103%); transition:transform .22s ease;
+    display:flex; flex-direction:column; gap:10px; padding:14px;
+  }
+  .drawer.open { transform:none; }
+  .drawer h2 {
+    font-size:11.5px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--muted); margin:2px 2px 0; font-weight:600;
+  }
+  .newchat {
+    font:inherit; font-size:14px; font-weight:600; color:var(--accent);
+    background:var(--accent-soft); border:0; border-radius:10px;
+    padding:9px 12px; cursor:pointer; text-align:left;
+  }
+  .newchat:hover { filter:brightness(1.04); }
+  .chatlist { overflow:auto; display:flex; flex-direction:column; gap:2px; }
+  .chatitem { display:flex; align-items:center; gap:2px; }
+  .chatitem .t {
+    flex:1; min-width:0; text-align:left; font:inherit; font-size:13.5px; color:var(--ink);
+    background:none; border:0; border-radius:8px; padding:8px 10px; cursor:pointer;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .chatitem .t:hover { background:var(--bg); }
+  .chatitem .t.cur { color:var(--accent); background:var(--accent-soft); }
+  .chatitem .x {
+    visibility:hidden; background:none; border:0; color:var(--muted);
+    cursor:pointer; font-size:14px; padding:4px 7px; border-radius:6px;
+  }
+  .chatitem:hover .x { visibility:visible; }
+  .chatitem .x:hover { color:var(--err); }
   .composer { padding:8px 16px 0; }
   #f {
     display:flex; align-items:center; gap:6px; max-width:680px; margin:0 auto; width:100%;
@@ -117,14 +159,21 @@
 </head>
 <body>
 <header>
+  <button class="burger" id="burger" aria-label="Chat history" title="Chat history">&#9776;</button>
   <span class="dot"></span><span class="brand">Ask Desk</span>
   <span class="right">
     <select id="plugin" hidden></select>
     <span class="sub" id="sub"></span>
   </span>
 </header>
+<div class="scrim" id="scrim"></div>
+<nav class="drawer" id="drawer" aria-label="Saved chats">
+  <button class="newchat" id="newchat">+ New chat</button>
+  <h2>Recent</h2>
+  <div class="chatlist" id="chatlist"></div>
+</nav>
 <div class="wrap"><div class="col" id="col">
-  <div class="hello">
+  <div class="hello" id="hello">
     <h1>Ask anything.</h1>
     <p>Answers come from the team's own documents — nothing is invented.</p>
   </div>
@@ -139,13 +188,98 @@
 <script>
 const API = location.origin + "/api";
 const LS_PLUGIN = "askdesk.plugin";
+const LS_CHATS = "askdesk.chats";
+const LS_CHAT = "askdesk.chat";
 const $ = (id) => document.getElementById(id);
 const col = $("col"), f = $("f"), q = $("q"), send = $("send"),
-      pluginSel = $("plugin"), sub = $("sub");
+      pluginSel = $("plugin"), sub = $("sub"),
+      burger = $("burger"), drawer = $("drawer"), scrim = $("scrim"),
+      chatlist = $("chatlist"), helloEl = $("hello");
 let plugin = localStorage.getItem(LS_PLUGIN) || "";
 let lastQ = "";
 let history = [];
 const scroll = () => requestAnimationFrame(() => { col.parentElement.scrollTop = col.parentElement.scrollHeight; });
+
+// ---------- saved chats (localStorage) ----------
+const loadChats = () => { try { return JSON.parse(localStorage.getItem(LS_CHATS)) || []; } catch { return []; } };
+const saveChats = (list) => localStorage.setItem(LS_CHATS, JSON.stringify(list.slice(0, 30)));
+let curChat = localStorage.getItem(LS_CHAT) || "";
+
+function renderChatList() {
+  chatlist.replaceChildren();
+  for (const c of loadChats()) {
+    const item = document.createElement("div");
+    item.className = "chatitem";
+    const t = document.createElement("button");
+    t.type = "button";
+    t.className = "t" + (c.id === curChat ? " cur" : "");
+    t.textContent = c.title;
+    t.title = c.title;
+    t.onclick = () => { openChat(c.id); closeDrawer(); };
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "x";
+    x.textContent = "✕";
+    x.setAttribute("aria-label", "Delete chat");
+    x.onclick = () => deleteChat(c.id);
+    item.append(t, x);
+    chatlist.appendChild(item);
+  }
+}
+
+function persistChat() {
+  if (!history.length) return;
+  const chats = loadChats();
+  let c = chats.find((x) => x.id === curChat);
+  if (!c) {
+    c = { id: crypto.randomUUID(), title: history[0].content.slice(0, 60), updated: 0 };
+    chats.unshift(c);
+    curChat = c.id;
+    localStorage.setItem(LS_CHAT, curChat);
+  }
+  c.msgs = history.slice();
+  c.updated = Date.now();
+  chats.sort((a, b) => b.updated - a.updated);
+  saveChats(chats);
+  renderChatList();
+}
+
+function openChat(id) {
+  const c = loadChats().find((x) => x.id === id);
+  if (!c) return;
+  curChat = id;
+  localStorage.setItem(LS_CHAT, id);
+  history = (c.msgs || []).slice();
+  col.replaceChildren();
+  for (const m of history) {
+    if (m.role === "user") add("q", m.content);
+    else {
+      const a = add("a", "");
+      a.innerHTML = md(m.content);
+    }
+  }
+  renderChatList();
+  scroll();
+}
+
+function newChat() {
+  curChat = "";
+  localStorage.removeItem(LS_CHAT);
+  history = [];
+  col.replaceChildren(helloEl);
+  renderChatList();
+}
+
+function deleteChat(id) {
+  saveChats(loadChats().filter((c) => c.id !== id));
+  if (curChat === id) newChat();
+  else renderChatList();
+}
+
+const openDrawer = () => { drawer.classList.add("open"); scrim.classList.add("open"); };
+const closeDrawer = () => { drawer.classList.remove("open"); scrim.classList.remove("open"); };
+burger.onclick = openDrawer;
+scrim.onclick = closeDrawer;
 
 const headers = () => ({ "Content-Type": "application/json" });
 
@@ -194,7 +328,7 @@ async function loadPlugins() {
 pluginSel.onchange = () => {
   plugin = pluginSel.value;
   localStorage.setItem(LS_PLUGIN, plugin);
-  history = [];
+  newChat();
 };
 
 // ---------- markdown (tiny, safe: escapes first) ----------
@@ -305,7 +439,8 @@ f.onsubmit = async (e) => {
     a.innerHTML = md(holder.text);
     holder.text = holder.text.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1");
     history.push({ role: "user", content: question }, { role: "assistant", content: holder.text });
-    history = history.slice(-6);
+    history = history.slice(-24);
+    persistChat();
     const list = (meta && meta.sources) || [];
     if (list.length) {
       const s = document.createElement("div");
@@ -420,6 +555,8 @@ function addTools(a, question, holder, srcEl) {
   } catch {
     add("a err", "Network error — check the connection and try again.");
   }
+  renderChatList();
+  if (curChat && loadChats().some((c) => c.id === curChat)) openChat(curChat);
 })();
 </script>
 </body>
