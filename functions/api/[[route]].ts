@@ -342,6 +342,37 @@ async function prepareAsk(env: Env, request: Request) {
         .slice(0, 6);
     } catch {}
   }
+  // Smart retry: if nothing matched, ask the LLM to rewrite the question into
+  // search keywords and try once more. Cuts 'not found' answers.
+  if (!hits.length) {
+    try {
+      const rewrite = await callLlm(env,
+        "Rewrite the user's question into 3-6 short search keywords or phrases that would match a support knowledge base. Output only the keywords, comma-separated. No explanation, no punctuation other than commas.",
+        `Question: ${question}`);
+      const q2 = rewrite.trim().slice(0, 300);
+      if (q2 && q2 !== question) {
+        const r2 = await sb(env, "rpc/search_chunks", { method: "POST", body: JSON.stringify({ q: q2, p: plugin, n: 6 }) });
+        let h2: Row[] = (Array.isArray(r2) ? r2 : []).filter((h) => Number(h.rank) >= MIN_RANK);
+        const v2 = (await embed(env, [q2]))[0];
+        if (v2) {
+          try {
+            const s2: Row[] = await sb(env, "rpc/search_chunks_semantic", { method: "POST", body: JSON.stringify({ q_embedding: JSON.stringify(v2), p: plugin, n: 6 }) });
+            const best = new Map<string, Row>();
+            for (const h of [...h2, ...(Array.isArray(s2) ? s2 : [])]) {
+              if (!h || h.rank == null || !h.text || h.title === undefined) continue;
+              const fromKeyword = h2.includes(h);
+              if (!fromKeyword && Number(h.rank) < SEM_MIN) continue;
+              const k = String(h.chunk_id);
+              const prev = best.get(k);
+              if (!prev || Number(h.rank) > Number(prev.rank)) best.set(k, h);
+            }
+            h2 = [...best.values()].filter((h) => Number(h.rank) >= MIN_RANK).sort((a, b) => Number(b.rank) - Number(a.rank)).slice(0, 6);
+          } catch {}
+        }
+        if (h2.length) hits = h2;
+      }
+    } catch {}
+  }
   const found = hits.length > 0;
   await logQuestion(env, question, plugin, found);
 
