@@ -22,7 +22,7 @@ clicks, listed below. Phase 7 stays parked.
 5. **Full conversation memory** — the whole thread is sent with each question,
    not just the last 6 messages.
 
-## Phase 3 — The brain  ✅ shipped (needs one-time setup, README step 7)
+## Phase 3 — The brain  ✅ shipped (needs one-time setup, README step 7; smart retry included)
 6. **Semantic search (pgvector)** — embeddings understand *meaning*:
    "can I get my money back?" finds the refund page without the word "refund".
    - add a `vector` column + embedding step on document save
