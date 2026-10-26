@@ -52,6 +52,8 @@
   .q { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:5px; }
   .a { align-self:flex-start; background:var(--panel); border:1px solid var(--line); box-shadow:0 1px 2px rgb(0 0 0 / .04); border-bottom-left-radius:5px; }
   .src { margin-top:8px; font-size:12.5px; color:var(--muted); }
+  .src a { color:var(--accent); text-decoration:underline; text-underline-offset:2px; }
+  .src .weak { color:var(--err); }
   .tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:9px; }
   .tools .copy {
     display:inline-flex; align-items:center; gap:5px; font:inherit; font-size:12.5px;
@@ -162,6 +164,10 @@
   <button class="burger" id="burger" aria-label="Chat history" title="Chat history">&#9776;</button>
   <span class="dot"></span><span class="brand">Ask Desk</span>
   <span class="right">
+    <select id="tone" title="Reply tone">
+      <option value="friendly">Friendly</option>
+      <option value="formal">Formal</option>
+    </select>
     <select id="plugin" hidden></select>
     <span class="sub" id="sub"></span>
   </span>
@@ -192,10 +198,13 @@ const LS_CHATS = "askdesk.chats";
 const LS_CHAT = "askdesk.chat";
 const $ = (id) => document.getElementById(id);
 const col = $("col"), f = $("f"), q = $("q"), send = $("send"),
-      pluginSel = $("plugin"), sub = $("sub"),
+      pluginSel = $("plugin"), sub = $("sub"), toneSel = $("tone"),
       burger = $("burger"), drawer = $("drawer"), scrim = $("scrim"),
       chatlist = $("chatlist"), helloEl = $("hello");
 let plugin = localStorage.getItem(LS_PLUGIN) || "";
+let tone = localStorage.getItem("askdesk.tone") || "friendly";
+toneSel.value = tone;
+toneSel.onchange = () => { tone = toneSel.value; localStorage.setItem("askdesk.tone", tone); };
 let lastQ = "";
 let history = [];
 const scroll = () => requestAnimationFrame(() => { col.parentElement.scrollTop = col.parentElement.scrollHeight; });
@@ -388,7 +397,7 @@ f.onsubmit = async (e) => {
     const r = await fetch(API + "/ask/stream", {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ question, plugin, asReply: true, history }),
+      body: JSON.stringify({ question, plugin, asReply: true, tone, history }),
       signal: ctrl.signal,
     });
     if (!r.ok || !r.body) {
@@ -445,7 +454,27 @@ f.onsubmit = async (e) => {
     if (list.length) {
       const s = document.createElement("div");
       s.className = "src";
-      s.textContent = "Sources: " + list.map((x) => x.title + (x.plugin ? " — " + x.plugin : "")).join(" · ");
+      s.append("Sources: ");
+      list.forEach((x, i) => {
+        if (i) s.append(" · ");
+        const label = x.title + (x.plugin ? " — " + x.plugin : "");
+        if (x.source_url) {
+          const link = document.createElement("a");
+          link.href = x.source_url;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = label;
+          s.appendChild(link);
+        } else {
+          s.append(label);
+        }
+      });
+      if (meta && meta.confidence === "low") {
+        const w = document.createElement("span");
+        w.className = "weak";
+        w.textContent = " · weak match — double-check";
+        s.appendChild(w);
+      }
       a.appendChild(s);
       addTools(a, question, holder, s);
     } else {

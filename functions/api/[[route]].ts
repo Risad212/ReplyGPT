@@ -191,11 +191,13 @@ async function callLlm(env: Env, system: string, user: string): Promise<string> 
 
 // ---------- prompts ----------
 
-function systemPrompt(mode: "found" | "notfound" | "smalltalk", asReply: boolean): string {
+function systemPrompt(mode: "found" | "notfound" | "smalltalk", asReply: boolean, tone: string): string {
   const persona = [
     "You are the support assistant for a team that sells WordPress payment plugins (WP Smart Pay and its Paddle add-ons).",
     "Voice: a warm, experienced support person. Plain words, short paragraphs. No corporate stiffness, no emoji.",
-    "Short markdown is welcome: **bold** for key points, and bullet or numbered lists when steps help. No headings and no code blocks unless the question is about code.",
+    tone === "formal"
+      ? "Register: formal and professional. Avoid contractions. In Bangla, use the polite form."
+      : "Register: friendly and natural.",
     "Never claim to be a human and never make up a name for yourself.",
     "Answer in the same language as the question (English or Bangla).",
   ];
@@ -289,8 +291,8 @@ async function removeDoc(env: Env, url: URL) {
 
 async function ask(env: Env, request: Request) {
   const p = await prepareAsk(env, request);
-  const answer = await callLlm(env, systemPrompt(p.mode, p.asReply), p.user);
-  return { answer, sources: p.sources, found: p.found };
+  const answer = await callLlm(env, systemPrompt(p.mode, p.asReply, p.tone), p.user);
+  return { answer, sources: p.sources, found: p.found, confidence: p.confidence };
 }
 
 async function prepareAsk(env: Env, request: Request) {
@@ -298,6 +300,7 @@ async function prepareAsk(env: Env, request: Request) {
   const question = clean(b.question, 1000);
   const plugin = clean(b.plugin, 100);
   const asReply = b.asReply !== false;
+  const tone = b.tone === "formal" ? "formal" : "friendly";
   if (!question) throw new HttpError(400, "Type a question.");
 
   const hist = readHistory(b.history);
@@ -306,7 +309,7 @@ async function prepareAsk(env: Env, request: Request) {
     await logQuestion(env, question, plugin, true);
     let user = hist.length ? `Earlier conversation:\n${hist.join("\n")}\n\n` : "";
     user += `Question: ${question}`;
-    return { asReply, mode: "smalltalk" as const, user, sources: [] as Row[], found: true };
+    return { asReply, tone, mode: "smalltalk" as const, user, sources: [] as Row[], found: true, confidence: "high" };
   }
 
   const rpcRes: Row[] = await sb(env, "rpc/search_chunks", {
@@ -357,9 +360,22 @@ async function prepareAsk(env: Env, request: Request) {
     const k = `${h.title}|${h.plugin}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    sources.push({ title: h.title, plugin: h.plugin, kind: h.kind });
+    sources.push({ title: h.title, plugin: h.plugin, kind: h.kind, doc_id: h.doc_id });
   }
-  return { asReply, mode: found ? ("found" as const) : ("notfound" as const), user, sources, found };
+  // Attach source links so the chat can show clickable citations.
+  if (sources.length) {
+    try {
+      const ids = [...new Set(sources.map((s) => String(s.doc_id)))].filter((x) => UUID.test(x));
+      if (ids.length) {
+        const docs: Row[] = await sb(env, `documents?select=id,source_url&id=in.(${enc(ids.join(","))})`);
+        const urlById = new Map((Array.isArray(docs) ? docs : []).map((d) => [String(d.id), d.source_url]));
+        for (const s of sources) s.source_url = urlById.get(String(s.doc_id)) || null;
+      }
+    } catch {}
+  }
+  const topRank = Math.max(0, ...hits.map((h) => Number(h.rank) || 0));
+  const confidence = found ? (topRank >= 0.15 ? "high" : "low") : "none";
+  return { asReply, tone, mode: found ? ("found" as const) : ("notfound" as const), user, sources, found, confidence };
 }
 
 async function callLlmStream(env: Env, system: string, user: string, onDelta: (t: string) => void): Promise<string> {
@@ -425,8 +441,8 @@ async function askStream(env: Env, request: Request): Promise<Response> {
     async start(ctrl) {
       const send = (o: unknown) => ctrl.enqueue(enc.encode(`data: ${JSON.stringify(o)}\n\n`));
       try {
-        send({ type: "meta", found: p.found, sources: p.sources });
-        await callLlmStream(env, systemPrompt(p.mode, p.asReply), p.user, (t) => send({ type: "delta", text: t }));
+        send({ type: "meta", found: p.found, sources: p.sources, confidence: p.confidence });
+        await callLlmStream(env, systemPrompt(p.mode, p.asReply, p.tone), p.user, (t) => send({ type: "delta", text: t }));
         send({ type: "done" });
       } catch (e: any) {
         send({ type: "error", message: e instanceof HttpError ? e.message : "Something went wrong while answering." });

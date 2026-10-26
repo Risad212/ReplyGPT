@@ -28,6 +28,7 @@ globalThis.fetch = async (url, init = {}) => {
   }
   if (url.includes("/rpc/search_chunks_semantic")) return j(semanticResult);
   if (url.includes("/rpc/search_chunks")) return j(searchResult);
+  if (url.includes("documents?select=id,source_url&id=in.")) return j([{ id: "33333333-3333-3333-3333-333333333333", source_url: "https://x/pricing" }]);
   if (url.includes("chunks?embedding=is.null&select=id,text")) return j([{ id: 7, text: "hello world" }]);
   if (url.includes("chunks?embedding=is.null&select=id")) return j([]);
   if (url.includes("/rest/v1/documents") && init.method === "POST") return j([{ id: "11111111-1111-1111-1111-111111111111" }], 201);
@@ -50,13 +51,25 @@ assert.deepEqual(await (await call("GET", "/api/plugins")).json(), { plugins: ["
 assert.equal(chunkText("a\n\nb").length, 1);
 assert.ok(chunkText("x".repeat(3000)).length >= 3);
 // ask with a match
-searchResult = [{ title: "Pricing", plugin: "A", kind: "doc", text: "No hidden charge.", rank: 0.61 }];
+searchResult = [{ title: "Pricing", plugin: "A", kind: "doc", text: "No hidden charge.", rank: 0.61, doc_id: "33333333-3333-3333-3333-333333333333" }];
 let r = await (await call("POST", "/api/ask", { question: "Any hidden charge?", plugin: "A" })).json();
 assert.equal(r.found, true);
 assert.equal(r.sources[0].title, "Pricing");
+assert.equal(r.sources[0].source_url, "https://x/pricing");
+assert.equal(r.confidence, "high");
 assert.match(r.answer, /hidden charge/);
 const llm = calls.filter((c) => c.url.startsWith("http://llm")).pop();
 assert.match(JSON.parse(llm.body).messages[1].content, /Passages:/);
+// a weak keyword-only match is answered but flagged low-confidence
+searchResult = [{ title: "Pricing", plugin: "A", kind: "doc", text: "No hidden charge.", rank: 0.08, doc_id: "33333333-3333-3333-3333-333333333333" }];
+r = await (await call("POST", "/api/ask", { question: "Any hidden charge?", plugin: "A" })).json();
+assert.equal(r.found, true);
+assert.equal(r.confidence, "low");
+// formal tone reaches the system prompt
+searchResult = [{ title: "Pricing", plugin: "A", kind: "doc", text: "No hidden charge.", rank: 0.61, doc_id: "33333333-3333-3333-3333-333333333333" }];
+await call("POST", "/api/ask", { question: "Any hidden charge?", plugin: "A", tone: "formal" });
+const llmTone = calls.filter((c) => c.url.startsWith("http://llm")).pop();
+assert.match(JSON.parse(llmTone.body).messages[0].content, /formal/);
 // ask with no match must not send passages and must say not found
 searchResult = [];
 r = await (await call("POST", "/api/ask", { question: "Does it support X?", plugin: "A" })).json();
