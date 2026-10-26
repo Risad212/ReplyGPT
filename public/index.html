@@ -135,6 +135,7 @@ const col = $("col"), f = $("f"), q = $("q"), send = $("send"),
       pluginSel = $("plugin"), sub = $("sub");
 let plugin = localStorage.getItem(LS_PLUGIN) || "";
 let lastQ = "";
+let history = [];
 const scroll = () => requestAnimationFrame(() => { col.parentElement.scrollTop = col.parentElement.scrollHeight; });
 
 const headers = () => ({ "Content-Type": "application/json" });
@@ -184,6 +185,7 @@ async function loadPlugins() {
 pluginSel.onchange = () => {
   plugin = pluginSel.value;
   localStorage.setItem(LS_PLUGIN, plugin);
+  history = [];
 };
 
 // ---------- ask ----------
@@ -201,11 +203,13 @@ f.onsubmit = async (e) => {
     const r = await fetch(API + "/ask", {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ question, plugin, asReply: true }),
+      body: JSON.stringify({ question, plugin, asReply: true, history }),
     });
     const j = await r.json().catch(() => ({}));
     if (r.ok && j.answer) {
       holder.text = j.answer;
+      history.push({ role: "user", content: question }, { role: "assistant", content: j.answer });
+      history = history.slice(-6);
       a.replaceChildren(document.createTextNode(j.answer));
       if (j.sources && j.sources.length) {
         const s = document.createElement("div");
@@ -282,6 +286,12 @@ function addTools(a, question, holder, srcEl) {
       });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.id) {
+        for (let i = history.length - 1; i >= 0; i--) {
+          if (history[i].role === "assistant" && history[i].content === holder.text) {
+            history[i].content = answer;
+            break;
+          }
+        }
         holder.text = answer;
         fixbox.remove();
         fixbtn.remove();

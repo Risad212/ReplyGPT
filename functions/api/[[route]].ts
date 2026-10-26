@@ -155,30 +155,64 @@ async function callLlm(env: Env, system: string, user: string): Promise<string> 
 
 // ---------- prompts ----------
 
-function systemPrompt(found: boolean, asReply: boolean): string {
+function systemPrompt(mode: "found" | "notfound" | "smalltalk", asReply: boolean): string {
+  const persona = [
+    "You are the support assistant for a team that sells WordPress payment plugins (WP Smart Pay and its Paddle add-ons).",
+    "Voice: a warm, experienced support person. Plain words, short paragraphs. No corporate stiffness, no emoji.",
+    "Never claim to be a human and never make up a name for yourself.",
+    "Answer in the same language as the question (English or Bangla).",
+  ];
   const style = asReply
-    ? "Write the answer as a short, friendly message the support agent can send to the customer as it is. No greeting line with a name, no signature."
+    ? "The reply will be sent to a customer as it is: briefly acknowledge their question in a natural way, answer clearly in short paragraphs, and end with one helpful next step or an offer to help further. No greeting line with a name, no signature."
     : "Write a short, plain answer for the support agent.";
-  if (found) {
+  if (mode === "found") {
     return [
-      "You help a support team answer customer questions about their software plugins.",
+      ...persona,
       "Use ONLY the numbered passages you are given. Do not add features, versions, prices, integrations or policies that the passages do not state.",
       "Passages from documents titled 'Learned:' are answers the team confirmed. If passages conflict, trust the 'Learned:' ones.",
       "If the passages only partly answer the question, give the part they support and say what is missing.",
       "If the passages do not answer the question at all, say in one short sentence that the documents do not cover it, suggest checking the plugin documentation or asking a teammate, and cite no documents.",
       "When you do use passages, end with the document title you used in brackets, like [Refund policy]. Never write a placeholder instead of a real title.",
-      "Answer in the same language as the question (English or Bangla).",
+      style,
+    ].join("\n");
+  }
+  if (mode === "notfound") {
+    return [
+      ...persona,
+      "The team's documents did not contain anything relevant to this question.",
+      "Say so in one or two warm sentences — you could not find it in the documents and will check with the team — and suggest the agent check the plugin documentation or ask a teammate.",
+      "If the question is too vague to even tell what is being asked, instead ask one short clarifying question.",
+      "Never guess about the company's own plugins: no features, integrations, prices, versions or policies.",
+      "Only if the question is general knowledge unrelated to the company's products, add a short answer labelled 'General knowledge (not from your documents):'.",
       style,
     ].join("\n");
   }
   return [
-    "You help a support team answer customer questions about their software plugins.",
-    "The team's documents did not contain anything relevant to this question.",
-    "Say that in one short sentence, and suggest the agent check the plugin documentation or ask a teammate.",
-    "Never guess about the company's own plugins: no features, integrations, prices, versions or policies.",
-    "Only if the question is general knowledge that has nothing to do with the company's products, add a short answer labelled 'General knowledge (not from your documents):'.",
-    "Answer in the same language as the question (English or Bangla).",
+    ...persona,
+    "This message is a greeting or a thank-you, not a real question.",
+    "Reply warmly in one or two short sentences and offer to help.",
+    "Do not mention documents.",
+    style,
   ].join("\n");
+}
+
+const SMALL_TALK = new Set([
+  "hi", "hii", "hiii", "hello", "hello there", "hey", "hey there", "yo",
+  "thanks", "thank you", "thx", "ty", "many thanks", "thanks a lot",
+  "bye", "goodbye", "good morning", "good afternoon", "good evening",
+  "হাই", "হ্যালো", "ধন্যবাদ", "অনেক ধন্যবাদ", "সালাম", "আসসালামু আলাইকুম", "বাই",
+]);
+
+function isSmallTalk(q: string): boolean {
+  const t = normalize(q).replace(/[!.?,:;]+/g, "").trim();
+  return t.length <= 30 && SMALL_TALK.has(t);
+}
+
+function readHistory(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.slice(-6)
+    .map((m: any) => `${m && m.role === "assistant" ? "Assistant" : "Agent"}: ${clean(m && m.content, 800)}`)
+    .filter((l) => l.length > 10);
 }
 
 // ---------- routes ----------
@@ -223,6 +257,16 @@ async function ask(env: Env, request: Request) {
   const asReply = b.asReply !== false;
   if (!question) throw new HttpError(400, "Type a question.");
 
+  const hist = readHistory(b.history);
+
+  if (isSmallTalk(question)) {
+    await logQuestion(env, question, plugin, true);
+    let user = hist.length ? `Earlier conversation:\n${hist.join("\n")}\n\n` : "";
+    user += `Question: ${question}`;
+    const answer = await callLlm(env, systemPrompt("smalltalk", asReply), user);
+    return { answer, sources: [], found: true };
+  }
+
   const rpcRes: Row[] = await sb(env, "rpc/search_chunks", {
     method: "POST",
     body: JSON.stringify({ q: question, p: plugin, n: 6 }),
@@ -231,7 +275,8 @@ async function ask(env: Env, request: Request) {
   const found = hits.length > 0;
   await logQuestion(env, question, plugin, found);
 
-  let user = `Question: ${question}`;
+  let user = hist.length ? `Earlier conversation:\n${hist.join("\n")}\n\n` : "";
+  user += `Question: ${question}`;
   if (plugin) user = `Plugin: ${plugin}\n${user}`;
   if (found) {
     const passages = hits
@@ -239,7 +284,7 @@ async function ask(env: Env, request: Request) {
       .join("\n\n");
     user = `${user}\n\nPassages:\n${passages}`;
   }
-  const answer = await callLlm(env, systemPrompt(found, asReply), user);
+  const answer = await callLlm(env, systemPrompt(found ? "found" : "notfound", asReply), user);
 
   const seen = new Set<string>();
   const sources: Row[] = [];

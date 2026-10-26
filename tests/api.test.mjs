@@ -54,6 +54,26 @@ searchResult = [{ title: "Blog post", plugin: "A", kind: "doc", text: "payment g
 r = await (await call("POST", "/api/ask", { question: "SmartPay Pro features?", plugin: "A" })).json();
 assert.equal(r.found, false);
 assert.deepEqual(r.sources, []);
+// small talk skips the search entirely and still answers
+const before = calls.filter((c) => c.url.includes("/rpc/search_chunks")).length;
+r = await (await call("POST", "/api/ask", { question: "Hi!", plugin: "A" })).json();
+assert.equal(r.found, true);
+assert.deepEqual(r.sources, []);
+assert.equal(calls.filter((c) => c.url.includes("/rpc/search_chunks")).length, before);
+// history is passed to the LLM
+searchResult = [{ title: "Pricing", plugin: "A", kind: "doc", text: "No hidden charge.", rank: 0.61 }];
+r = await (await call("POST", "/api/ask", {
+  question: "And for EDD?",
+  plugin: "A",
+  history: [
+    { role: "user", content: "Does it support subscriptions?" },
+    { role: "assistant", content: "Yes, on Pro. [Pricing]" },
+  ],
+})).json();
+assert.equal(r.found, true);
+const llm3 = calls.filter((c) => c.url.startsWith("http://llm")).pop();
+assert.match(JSON.parse(llm3.body).messages[1].content, /Earlier conversation:/);
+assert.match(JSON.parse(llm3.body).messages[1].content, /And for EDD\?/);
 // ask needs a question
 assert.equal((await call("POST", "/api/ask", { question: "  " })).status, 400);
 // add a doc and a learned answer
