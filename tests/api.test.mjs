@@ -14,7 +14,16 @@ globalThis.fetch = async (url, init = {}) => {
   url = String(url);
   calls.push({ url, method: init.method || "GET", body: init.body });
   const j = (d, s = 200) => new Response(s === 204 ? null : JSON.stringify(d), { status: s });
-  if (url.startsWith("http://llm")) return j({ choices: [{ message: { content: "No. There is no hidden charge. [Pricing]" } }] });
+  if (url.startsWith("http://llm")) {
+    const body = JSON.parse(init.body || "{}");
+    if (!body.stream) return j({ choices: [{ message: { content: "No. There is no hidden charge. [Pricing]" } }] });
+    const sse = [
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "No. There is " } }] })}`,
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "no hidden charge. [Pricing]" } }] })}`,
+      "data: [DONE]",
+    ].join("\n\n") + "\n\n";
+    return new Response(sse, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  }
   if (url.includes("/rpc/search_chunks")) return j(searchResult);
   if (url.includes("/rest/v1/documents") && init.method === "POST") return j([{ id: "11111111-1111-1111-1111-111111111111" }], 201);
   if (url.includes("/rest/v1/questions") && !init.method) return j([]);
@@ -76,6 +85,21 @@ assert.match(JSON.parse(llm3.body).messages[1].content, /Earlier conversation:/)
 assert.match(JSON.parse(llm3.body).messages[1].content, /And for EDD\?/);
 // ask needs a question
 assert.equal((await call("POST", "/api/ask", { question: "  " })).status, 400);
+// streaming: SSE events in order, meta first, deltas join into the answer
+{
+  const res = await call("POST", "/api/ask/stream", { question: "Any hidden charge?", plugin: "A" });
+  assert.equal(res.headers.get("Content-Type"), "text/event-stream");
+  const text = await res.text();
+  const events = text.split("\n\n").filter((l) => l.startsWith("data:")).map((l) => JSON.parse(l.slice(5)));
+  assert.equal(events[0].type, "meta");
+  assert.equal(events[0].found, true);
+  assert.equal(events[0].sources[0].title, "Pricing");
+  const deltas = events.filter((e) => e.type === "delta").map((e) => e.text).join("");
+  assert.match(deltas, /hidden charge/);
+  assert.equal(events[events.length - 1].type, "done");
+  const streamLlm = calls.filter((c) => c.url.startsWith("http://llm")).pop();
+  assert.equal(JSON.parse(streamLlm.body).stream, true);
+}
 // add a doc and a learned answer
 assert.equal((await call("POST", "/api/docs", { title: "T", plugin: "A", text: "hello world" })).status, 200);
 assert.equal((await call("POST", "/api/docs", { title: "T", text: "" })).status, 400);

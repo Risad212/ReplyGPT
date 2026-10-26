@@ -159,6 +159,7 @@ function systemPrompt(mode: "found" | "notfound" | "smalltalk", asReply: boolean
   const persona = [
     "You are the support assistant for a team that sells WordPress payment plugins (WP Smart Pay and its Paddle add-ons).",
     "Voice: a warm, experienced support person. Plain words, short paragraphs. No corporate stiffness, no emoji.",
+    "Short markdown is welcome: **bold** for key points, and bullet or numbered lists when steps help. No headings and no code blocks unless the question is about code.",
     "Never claim to be a human and never make up a name for yourself.",
     "Answer in the same language as the question (English or Bangla).",
   ];
@@ -251,6 +252,12 @@ async function removeDoc(env: Env, url: URL) {
 }
 
 async function ask(env: Env, request: Request) {
+  const p = await prepareAsk(env, request);
+  const answer = await callLlm(env, systemPrompt(p.mode, p.asReply), p.user);
+  return { answer, sources: p.sources, found: p.found };
+}
+
+async function prepareAsk(env: Env, request: Request) {
   const b = await readJson(request);
   const question = clean(b.question, 1000);
   const plugin = clean(b.plugin, 100);
@@ -263,8 +270,7 @@ async function ask(env: Env, request: Request) {
     await logQuestion(env, question, plugin, true);
     let user = hist.length ? `Earlier conversation:\n${hist.join("\n")}\n\n` : "";
     user += `Question: ${question}`;
-    const answer = await callLlm(env, systemPrompt("smalltalk", asReply), user);
-    return { answer, sources: [], found: true };
+    return { asReply, mode: "smalltalk" as const, user, sources: [] as Row[], found: true };
   }
 
   const rpcRes: Row[] = await sb(env, "rpc/search_chunks", {
@@ -284,8 +290,6 @@ async function ask(env: Env, request: Request) {
       .join("\n\n");
     user = `${user}\n\nPassages:\n${passages}`;
   }
-  const answer = await callLlm(env, systemPrompt(found ? "found" : "notfound", asReply), user);
-
   const seen = new Set<string>();
   const sources: Row[] = [];
   for (const h of hits || []) {
@@ -294,7 +298,85 @@ async function ask(env: Env, request: Request) {
     seen.add(k);
     sources.push({ title: h.title, plugin: h.plugin, kind: h.kind });
   }
-  return { answer, sources, found };
+  return { asReply, mode: found ? ("found" as const) : ("notfound" as const), user, sources, found };
+}
+
+async function callLlmStream(env: Env, system: string, user: string, onDelta: (t: string) => void): Promise<string> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const res = await fetch(`${env.LLM_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.LLM_API_KEY}` },
+      body: JSON.stringify({
+        model: env.LLM_MODEL,
+        temperature: 0.2,
+        max_tokens: 500,
+        stream: true,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+    if (!res.ok || !res.body) throw new HttpError(502, `The AI service returned an error (${res.status}). Check LLM_BASE_URL, LLM_MODEL and LLM_API_KEY.`);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    let full = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop() || "";
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        try {
+          const j = JSON.parse(payload);
+          const t = j?.choices?.[0]?.delta?.content;
+          if (t) {
+            full += t;
+            onDelta(t);
+          }
+        } catch {}
+      }
+    }
+    if (!full.trim()) throw new HttpError(502, "The AI service sent an empty answer.");
+    return full.trim();
+  } catch (e: any) {
+    if (e instanceof HttpError) throw e;
+    if (e?.name === "AbortError") throw new HttpError(504, "The AI service took too long. Try again.");
+    throw new HttpError(502, "Could not reach the AI service.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function askStream(env: Env, request: Request): Promise<Response> {
+  const p = await prepareAsk(env, request);
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(ctrl) {
+      const send = (o: unknown) => ctrl.enqueue(enc.encode(`data: ${JSON.stringify(o)}\n\n`));
+      try {
+        send({ type: "meta", found: p.found, sources: p.sources });
+        await callLlmStream(env, systemPrompt(p.mode, p.asReply), p.user, (t) => send({ type: "delta", text: t }));
+        send({ type: "done" });
+      } catch (e: any) {
+        send({ type: "error", message: e instanceof HttpError ? e.message : "Something went wrong while answering." });
+      } finally {
+        ctrl.close();
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store" },
+  });
 }
 
 async function learn(env: Env, request: Request) {
@@ -341,6 +423,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (m === "POST" && route === "docs") return json(await addDoc(env, request));
     if (m === "DELETE" && route === "docs") return json(await removeDoc(env, url));
     if (m === "POST" && route === "ask") return json(await ask(env, request));
+    if (m === "POST" && route === "ask/stream") return askStream(env, request);
     if (m === "POST" && route === "learn") return json(await learn(env, request));
     if (m === "GET" && route === "top") return json(await top(env, url));
     if (m === "GET" && route === "unanswered") return json(await unanswered(env, url));

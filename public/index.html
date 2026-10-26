@@ -79,6 +79,15 @@
   .dots i:nth-child(2) { animation-delay:.15s; } .dots i:nth-child(3) { animation-delay:.3s; }
   @keyframes pulse { 0%, 60%, 100% { opacity:.35; transform:none; } 30% { opacity:1; transform:translateY(-2px); } }
   .err { color:var(--err); }
+  .msg.a p { margin:0 0 8px; }
+  .msg.a p:last-child { margin-bottom:0; }
+  .msg.a ul, .msg.a ol { margin:4px 0 8px 20px; padding:0; }
+  .msg.a li { margin:3px 0; }
+  .msg.a code {
+    font-family:ui-monospace, Menlo, Consolas, monospace; font-size:13px;
+    background:var(--bg); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
+  }
+  button.send.stop { background:var(--ink); }
   .composer { padding:8px 16px 0; }
   #f {
     display:flex; align-items:center; gap:6px; max-width:680px; margin:0 auto; width:100%;
@@ -188,47 +197,130 @@ pluginSel.onchange = () => {
   history = [];
 };
 
-// ---------- ask ----------
+// ---------- markdown (tiny, safe: escapes first) ----------
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function md(src) {
+  const bold = (s) =>
+    s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+  let out = "", ul = false, ol = false;
+  const close = () => { if (ul) { out += "</ul>"; ul = false; } if (ol) { out += "</ol>"; ol = false; } };
+  for (const raw of esc(src).split("\n")) {
+    const line = raw.trim();
+    let m;
+    if (/^[-*] /.test(line)) {
+      if (!ul) { close(); out += "<ul>"; ul = true; }
+      out += "<li>" + bold(line.slice(2)) + "</li>";
+    } else if ((m = line.match(/^\d+[.)] (.*)$/))) {
+      if (!ol) { close(); out += "<ol>"; ol = true; }
+      out += "<li>" + bold(m[1]) + "</li>";
+    } else {
+      close();
+      if (line) out += "<p>" + bold(line) + "</p>";
+    }
+  }
+  close();
+  return out;
+}
+
+// ---------- ask (streaming) ----------
+let streaming = false;
+let ctrl = null;
+
+function setStreamUI(on) {
+  streaming = on;
+  send.classList.toggle("stop", on);
+  send.innerHTML = on ? "&#9632;" : "&#8593;";
+  send.setAttribute("aria-label", on ? "Stop" : "Send");
+  send.disabled = false;
+}
+
 f.onsubmit = async (e) => {
   e.preventDefault();
+  if (streaming) { ctrl.abort(); return; }
   const question = q.value.trim();
   if (!question) return;
   q.value = "";
   lastQ = question;
   add("q", question);
-  send.disabled = true;
+  setStreamUI(true);
   const a = typing();
   let holder = { text: "" };
+  let meta = null;
+  let stopped = false;
+  ctrl = new AbortController();
   try {
-    const r = await fetch(API + "/ask", {
+    const r = await fetch(API + "/ask/stream", {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ question, plugin, asReply: true, history }),
+      signal: ctrl.signal,
     });
-    const j = await r.json().catch(() => ({}));
-    if (r.ok && j.answer) {
-      holder.text = j.answer;
-      history.push({ role: "user", content: question }, { role: "assistant", content: j.answer });
-      history = history.slice(-6);
-      a.replaceChildren(document.createTextNode(j.answer));
-      if (j.sources && j.sources.length) {
+    if (!r.ok || !r.body) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error((j && j.error) || "Something went wrong (" + r.status + ").");
+    }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    let started = false;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop() || "";
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith("data:")) continue;
+        const ev = JSON.parse(line.slice(5));
+        if (ev.type === "meta") {
+          meta = ev;
+        } else if (ev.type === "delta") {
+          if (!started) { a.replaceChildren(); started = true; }
+          holder.text += ev.text;
+          a.innerHTML = md(holder.text);
+          scroll();
+        } else if (ev.type === "error") {
+          throw new Error(ev.message);
+        }
+      }
+    }
+  } catch (err) {
+    if (err && err.name === "AbortError") stopped = true;
+    else {
+      if (!holder.text) {
+        a.textContent = (err && err.message) || "Network error — check the connection.";
+        a.classList.add("err");
+      } else {
         const s = document.createElement("div");
         s.className = "src";
-        s.textContent = "Sources: " + j.sources.map((x) => x.title + (x.plugin ? " — " + x.plugin : "")).join(" · ");
+        s.textContent = (err && err.message) || "Stream interrupted.";
         a.appendChild(s);
-        addTools(a, question, holder, s);
-      } else {
-        addTools(a, question, holder, null);
       }
-    } else {
-      a.textContent = (j && j.error) || "Something went wrong (" + r.status + ").";
-      a.classList.add("err");
     }
-  } catch {
-    a.textContent = "Network error — check the connection.";
-    a.classList.add("err");
   }
-  send.disabled = false;
+  if (holder.text) {
+    a.innerHTML = md(holder.text);
+    holder.text = holder.text.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1");
+    history.push({ role: "user", content: question }, { role: "assistant", content: holder.text });
+    history = history.slice(-6);
+    const list = (meta && meta.sources) || [];
+    if (list.length) {
+      const s = document.createElement("div");
+      s.className = "src";
+      s.textContent = "Sources: " + list.map((x) => x.title + (x.plugin ? " — " + x.plugin : "")).join(" · ");
+      a.appendChild(s);
+      addTools(a, question, holder, s);
+    } else {
+      addTools(a, question, holder, null);
+    }
+  } else if (stopped) {
+    a.textContent = "Stopped.";
+  }
+  setStreamUI(false);
+  ctrl = null;
   q.focus();
   scroll();
 };

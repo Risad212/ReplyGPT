@@ -47,23 +47,34 @@ create or replace function search_chunks(q text, p text default '', n int defaul
 returns table (chunk_id bigint, doc_id uuid, title text, plugin text, kind text, text text, rank real)
 language sql stable as $$
   with terms as (
-    select string_agg(quote_literal(w) || ':*', ' | ') as tsq
+    select string_agg(
+             quote_literal(w) || case when length(w) > 4 then ':*' else '' end,
+             ' | ') as tsq
     from (
       select distinct lower(w) as w
       from regexp_split_to_table(q, '[^[:alnum:]ঀ-৿]+') as w
       where length(w) > 2
         and lower(w) not in ('the','and','you','your','are','for','with','this','that','what','how','does','can','any','have','has','not','from','about','which','who','when','where','why','give','get','want','need','show','tell','please','hey','list','version')
     ) s
+  ),
+  scored as (
+    select c.id as chunk_id, c.doc_id, d.title, c.plugin, c.kind, c.text,
+           (ts_rank(setweight(to_tsvector('simple', d.title), 'A') || c.fts, to_tsquery('simple', t.tsq))
+             * case when c.kind = 'learned' then 2.0 else 1.0 end)::real as rank
+    from chunks c
+    join documents d on d.id = c.doc_id
+    cross join terms t
+    where t.tsq is not null
+      and (coalesce(p, '') = '' or c.plugin = p or c.plugin = '')
+      and (setweight(to_tsvector('simple', d.title), 'A') || c.fts) @@ to_tsquery('simple', t.tsq)
+  ),
+  ranked as (
+    select *, row_number() over (partition by doc_id order by rank desc) as rn
+    from scored
   )
-  select c.id, c.doc_id, d.title, c.plugin, c.kind, c.text,
-         (ts_rank(setweight(to_tsvector('simple', d.title), 'A') || c.fts, to_tsquery('simple', t.tsq))
-           * case when c.kind = 'learned' then 2.0 else 1.0 end)::real as rank
-  from chunks c
-  join documents d on d.id = c.doc_id
-  cross join terms t
-  where t.tsq is not null
-    and (coalesce(p, '') = '' or c.plugin = p or c.plugin = '')
-    and (setweight(to_tsvector('simple', d.title), 'A') || c.fts) @@ to_tsquery('simple', t.tsq)
+  select chunk_id, doc_id, title, plugin, kind, text, rank
+  from ranked
+  where rn <= 2
   order by rank desc
   limit n;
 $$;
