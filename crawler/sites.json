@@ -2,5 +2,15 @@
   { "plugin": "WP Smart Pay", "sitemap": "https://wpsmartpay.com/sitemap-index.xml" },
   { "plugin": "WP Smart Pay", "sitemap": "https://docs.wpsmartpay.com/sitemap.xml", "exclude": ["paddle-for-woocommerce", "paddle-for-edd", "-woo", "-edd"] },
   { "plugin": "Paddle for WooCommerce", "sitemap": "https://docs.wpsmartpay.com/sitemap.xml", "include": ["paddle-for-woocommerce", "-woo"] },
-  { "plugin": "Paddle for Easy Digital Downloads", "sitemap": "https://docs.wpsmartpay.com/sitemap.xml", "include": ["paddle-for-edd", "-edd"] }
+  { "plugin": "Paddle for Easy Digital Downloads", "sitemap": "https://docs.wpsmartpay.com/sitemap.xml", "include": ["paddle-for-edd", "-edd"] },
+  {
+    "plugin": "WP Smart Pay",
+    "pages": [
+      "https://wordpress.org/plugins/smartpay/",
+      "https://wordpress.org/support/plugin/smartpay/",
+      "https://wordpress.org/support/plugin/smartpay/page/2/",
+      "https://wordpress.org/support/plugin/smartpay/page/3/"
+    ],
+    "follow": "^https://wordpress\\.org/support/topic/[^/]+/$"
+  }
 ]

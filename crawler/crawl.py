@@ -11,11 +11,12 @@ import gzip
 import io
 import json
 import os
+import re
 import sys
 import time
 import urllib.robotparser
 import xml.etree.ElementTree as ET
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 import trafilatura
@@ -23,6 +24,7 @@ import trafilatura
 UA = "AskDeskCrawler/1.0 (+support knowledge base updater)"
 MIN_CHARS = 200
 NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+HREF_RE = re.compile(r'href="([^"]+)"')
 
 
 def sitemap_root(content):
@@ -67,8 +69,9 @@ def robots_for(url):
 def main():
     api = os.environ.get("API_URL", "").rstrip("/")
     key = os.environ.get("TEAM_KEY", "")
-    if not api:
-        print("Set API_URL.")
+    dry = os.environ.get("DRY_RUN") == "1"
+    if not api and not dry:
+        print("Set API_URL (or DRY_RUN=1 to test without sending).")
         return 1
     max_pages = int(os.environ.get("MAX_PAGES", "300"))
     delay = float(os.environ.get("DELAY", "1"))
@@ -81,9 +84,13 @@ def main():
         plugin = site.get("plugin", "")
         include = site.get("include", [])
         exclude = site.get("exclude", [])
-        print(f"== {plugin or 'shared'}: {site['sitemap']}")
+        source = site.get("pages") or site.get("sitemap")
+        print(f"== {plugin or 'shared'}: {source}")
         try:
-            pages = sitemap_urls(site["sitemap"])
+            if site.get("pages"):
+                pages = list(site["pages"])
+            else:
+                pages = sitemap_urls(site["sitemap"])
         except Exception as e:
             print(f"   could not read sitemap: {e}")
             failed += 1
@@ -93,19 +100,50 @@ def main():
             if (not include or any(s in u for s in include))
             and not any(s in u for s in exclude)
         ][:max_pages]
-        robots = robots_for(site["sitemap"])
+        robots = robots_for(site.get("sitemap") or (site.get("pages") or [""])[0])
+
+        follow = site.get("follow")
+        if follow:
+            pat = re.compile(follow)
+            seen = set(pages)
+            extra = []
+            for p in pages:
+                if robots and not robots.can_fetch(UA, p):
+                    continue
+                try:
+                    res = requests.get(p, headers={"User-Agent": UA}, timeout=30)
+                    res.raise_for_status()
+                    for link in HREF_RE.findall(res.text):
+                        u = urljoin(p, link)
+                        if pat.match(u) and u not in seen:
+                            seen.add(u)
+                            extra.append(u)
+                except Exception:
+                    pass
+                time.sleep(delay)
+            print(f"   found {len(extra)} linked pages")
+            pages = (pages + extra)[:max_pages]
+
         for page in pages:
             if robots and not robots.can_fetch(UA, page):
                 skipped += 1
                 continue
             try:
-                html = requests.get(page, headers={"User-Agent": UA}, timeout=30).text
+                res = requests.get(page, headers={"User-Agent": UA}, timeout=30)
+                res.raise_for_status()
+                if not res.encoding or res.encoding.lower() in ("iso-8859-1", "us-ascii"):
+                    res.encoding = "utf-8"
+                html = res.text
                 text = trafilatura.extract(html, include_comments=False, include_tables=True) or ""
                 if len(text) < MIN_CHARS:
                     skipped += 1
                     continue
                 meta = trafilatura.extract_metadata(html)
                 title = (meta.title if meta and meta.title else page)[:200]
+                if dry:
+                    sent += 1
+                    print(f"   dry {len(text)} chars | {title} | {page}")
+                    continue
                 r = requests.post(
                     f"{api}/api/docs",
                     headers={"Authorization": f"Bearer {key}"} if key else {},
