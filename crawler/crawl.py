@@ -79,13 +79,20 @@ def main():
     sent = skipped = failed = 0
     for site in sites:
         plugin = site.get("plugin", "")
+        include = site.get("include", [])
+        exclude = site.get("exclude", [])
         print(f"== {plugin or 'shared'}: {site['sitemap']}")
         try:
-            pages = sitemap_urls(site["sitemap"])[:max_pages]
+            pages = sitemap_urls(site["sitemap"])
         except Exception as e:
             print(f"   could not read sitemap: {e}")
             failed += 1
             continue
+        pages = [
+            u for u in pages
+            if (not include or any(s in u for s in include))
+            and not any(s in u for s in exclude)
+        ][:max_pages]
         robots = robots_for(site["sitemap"])
         for page in pages:
             if robots and not robots.can_fetch(UA, page):
