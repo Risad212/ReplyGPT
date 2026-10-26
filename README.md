@@ -43,6 +43,15 @@ curl -X POST https://YOUR-SITE.pages.dev/api/docs \
   -d '{"title":"Refund policy","plugin":"","text":"..."}'
 ```
 
+## Counts (no UI)
+To see the most asked questions and the ones with no matching document:
+
+```bash
+./scripts/counts.sh https://YOUR-SITE.pages.dev "WP Smart Pay"
+```
+
+The plugin name is optional; leave it out for all plugins.
+
 ## Data tips
 - One topic per document. Use `Q:` and `A:` pairs for approved answers.
 - Set the plugin name on plugin-specific documents. Leave it blank for shared info (refunds, licensing, payment).

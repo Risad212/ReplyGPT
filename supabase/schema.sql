@@ -39,7 +39,10 @@ alter table chunks    enable row level security;
 alter table questions enable row level security;
 
 -- Search: matches any word of the question, within the chosen plugin plus shared
--- documents. Words match by prefix, so 'refund' finds 'refunds'. Learned answers are boosted. Works for English and Bangla ('simple' config).
+-- documents. Words match by prefix, so 'refund' finds 'refunds'. Document titles
+-- are weighted highest, so a page titled 'Free vs Pro' beats a blog post that
+-- repeats the plugin name. Learned answers are boosted. Works for English and
+-- Bangla ('simple' config).
 create or replace function search_chunks(q text, p text default '', n int default 6)
 returns table (chunk_id bigint, doc_id uuid, title text, plugin text, kind text, text text, rank real)
 language sql stable as $$
@@ -49,18 +52,18 @@ language sql stable as $$
       select distinct lower(w) as w
       from regexp_split_to_table(q, '[^[:alnum:]ঀ-৿]+') as w
       where length(w) > 2
-        and lower(w) not in ('the','and','you','your','are','for','with','this','that','what','how','does','can','any','have','has','not','from','about','which','who','when','where','why')
+        and lower(w) not in ('the','and','you','your','are','for','with','this','that','what','how','does','can','any','have','has','not','from','about','which','who','when','where','why','give','get','want','need','show','tell','please','hey','list','version')
     ) s
   )
   select c.id, c.doc_id, d.title, c.plugin, c.kind, c.text,
-         (ts_rank(c.fts, to_tsquery('simple', t.tsq))
+         (ts_rank(setweight(to_tsvector('simple', d.title), 'A') || c.fts, to_tsquery('simple', t.tsq))
            * case when c.kind = 'learned' then 2.0 else 1.0 end)::real as rank
   from chunks c
   join documents d on d.id = c.doc_id
   cross join terms t
   where t.tsq is not null
     and (coalesce(p, '') = '' or c.plugin = p or c.plugin = '')
-    and c.fts @@ to_tsquery('simple', t.tsq)
+    and (setweight(to_tsvector('simple', d.title), 'A') || c.fts) @@ to_tsquery('simple', t.tsq)
   order by rank desc
   limit n;
 $$;

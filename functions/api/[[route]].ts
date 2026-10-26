@@ -21,6 +21,7 @@ class HttpError extends Error {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MIN_RANK = 0.07;
 const enc = encodeURIComponent;
 
 // ---------- helpers ----------
@@ -164,7 +165,8 @@ function systemPrompt(found: boolean, asReply: boolean): string {
       "Use ONLY the numbered passages you are given. Do not add features, versions, prices, integrations or policies that the passages do not state.",
       "Passages from documents titled 'Learned:' are answers the team confirmed. If passages conflict, trust the 'Learned:' ones.",
       "If the passages only partly answer the question, give the part they support and say what is missing.",
-      "Mention the document title you used in brackets at the end, like [Refund policy].",
+      "If the passages do not answer the question at all, say in one short sentence that the documents do not cover it, suggest checking the plugin documentation or asking a teammate, and cite no documents.",
+      "When you do use passages, end with the document title you used in brackets, like [Refund policy]. Never write a placeholder instead of a real title.",
       "Answer in the same language as the question (English or Bangla).",
       style,
     ].join("\n");
@@ -221,11 +223,12 @@ async function ask(env: Env, request: Request) {
   const asReply = b.asReply !== false;
   if (!question) throw new HttpError(400, "Type a question.");
 
-  const hits: Row[] = await sb(env, "rpc/search_chunks", {
+  const rpcRes: Row[] = await sb(env, "rpc/search_chunks", {
     method: "POST",
     body: JSON.stringify({ q: question, p: plugin, n: 6 }),
   });
-  const found = Array.isArray(hits) && hits.length > 0;
+  const hits: Row[] = (Array.isArray(rpcRes) ? rpcRes : []).filter((h) => Number(h.rank) >= MIN_RANK);
+  const found = hits.length > 0;
   await logQuestion(env, question, plugin, found);
 
   let user = `Question: ${question}`;

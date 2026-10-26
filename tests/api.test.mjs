@@ -36,7 +36,7 @@ assert.deepEqual(await (await call("GET", "/api/plugins")).json(), { plugins: ["
 assert.equal(chunkText("a\n\nb").length, 1);
 assert.ok(chunkText("x".repeat(3000)).length >= 3);
 // ask with a match
-searchResult = [{ title: "Pricing", plugin: "A", kind: "doc", text: "No hidden charge." }];
+searchResult = [{ title: "Pricing", plugin: "A", kind: "doc", text: "No hidden charge.", rank: 0.61 }];
 let r = await (await call("POST", "/api/ask", { question: "Any hidden charge?", plugin: "A" })).json();
 assert.equal(r.found, true);
 assert.equal(r.sources[0].title, "Pricing");
@@ -49,6 +49,11 @@ r = await (await call("POST", "/api/ask", { question: "Does it support X?", plug
 assert.equal(r.found, false);
 const llm2 = calls.filter((c) => c.url.startsWith("http://llm")).pop();
 assert.doesNotMatch(JSON.parse(llm2.body).messages[1].content, /Passages:/);
+// a weak match (one incidental word) must count as not found, not get cited
+searchResult = [{ title: "Blog post", plugin: "A", kind: "doc", text: "payment gateway talk", rank: 0.02 }];
+r = await (await call("POST", "/api/ask", { question: "SmartPay Pro features?", plugin: "A" })).json();
+assert.equal(r.found, false);
+assert.deepEqual(r.sources, []);
 // ask needs a question
 assert.equal((await call("POST", "/api/ask", { question: "  " })).status, 400);
 // add a doc and a learned answer
