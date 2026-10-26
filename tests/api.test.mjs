@@ -7,9 +7,11 @@ import worker from "../functions/api/[[route]].ts";
 const env = {
   SUPABASE_URL: "http://db", SUPABASE_SERVICE_KEY: "s",
   LLM_BASE_URL: "http://llm/v1", LLM_MODEL: "m", LLM_API_KEY: "a",
+  AI: { run: async (model, { text }) => ({ data: text.map((t) => [0.1 + (t.length % 7) / 10, 0.5, 0.3, 0.9]) }) },
 };
 const calls = [];
 let searchResult = [];
+let semanticResult = [];
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
   calls.push({ url, method: init.method || "GET", body: init.body });
@@ -24,7 +26,10 @@ globalThis.fetch = async (url, init = {}) => {
     ].join("\n\n") + "\n\n";
     return new Response(sse, { status: 200, headers: { "Content-Type": "text/event-stream" } });
   }
+  if (url.includes("/rpc/search_chunks_semantic")) return j(semanticResult);
   if (url.includes("/rpc/search_chunks")) return j(searchResult);
+  if (url.includes("chunks?embedding=is.null&select=id,text")) return j([{ id: 7, text: "hello world" }]);
+  if (url.includes("chunks?embedding=is.null&select=id")) return j([]);
   if (url.includes("/rest/v1/documents") && init.method === "POST") return j([{ id: "11111111-1111-1111-1111-111111111111" }], 201);
   if (url.includes("/rest/v1/questions") && !init.method) return j([]);
   if (url.includes("select=plugin")) return j([{ plugin: "B" }, { plugin: "A" }, { plugin: "A" }]);
@@ -107,4 +112,25 @@ assert.equal((await call("POST", "/api/learn", { question: "q", answer: "a", plu
 // delete validates the id
 assert.equal((await call("DELETE", "/api/docs?id=not-a-uuid")).status, 400);
 assert.equal((await call("DELETE", "/api/docs?id=11111111-1111-1111-1111-111111111111")).status, 200);
+// semantic pass rescues a question the keyword search missed
+searchResult = [];
+semanticResult = [{ chunk_id: 99, doc_id: "22222222-2222-2222-2222-222222222222", title: "Integrations", plugin: "A", kind: "doc", text: "Works with Tutor LMS.", rank: 0.72 }];
+r = await (await call("POST", "/api/ask", { question: "can I use it with my LMS?", plugin: "A" })).json();
+assert.equal(r.found, true);
+assert.equal(r.sources[0].title, "Integrations");
+// weak semantic hits are dropped
+semanticResult = [{ chunk_id: 98, doc_id: "22222222-2222-2222-2222-222222222222", title: "Blog", plugin: "A", kind: "doc", text: "unrelated", rank: 0.2 }];
+r = await (await call("POST", "/api/ask", { question: "anything else?", plugin: "A" })).json();
+assert.equal(r.found, false);
+assert.deepEqual(r.sources, []);
+semanticResult = [];
+// backfill embeds chunks without embeddings and reports what is left
+{
+  const res = await call("POST", "/api/backfill");
+  const j = await res.json();
+  assert.equal(j.updated, 1);
+  assert.equal(j.more, false);
+  const patch = calls.filter((c) => c.method === "PATCH" && c.url.includes("chunks?id=eq.7")).pop();
+  assert.ok(patch && JSON.parse(patch.body).embedding.startsWith("["));
+}
 console.log("All API checks passed.");

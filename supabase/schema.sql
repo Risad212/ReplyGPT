@@ -78,3 +78,36 @@ language sql stable as $$
   order by rank desc
   limit n;
 $$;
+
+-- Semantic search (meaning-based). Chunks carry a bge-m3 embedding (1024 dims)
+-- made by the Cloudflare AI binding when a document is saved. 'Can I get my
+-- money back?' now finds the refund page without sharing a single word.
+-- Learned answers get a small boost, same per-document cap as keyword search.
+create extension if not exists vector;
+alter table chunks add column if not exists embedding vector(1024);
+create index if not exists chunks_embedding_idx on chunks using hnsw (embedding vector_cosine_ops);
+
+create or replace function search_chunks_semantic(
+  q_embedding vector(1024), p text default '', n int default 6
+)
+returns table (chunk_id bigint, doc_id uuid, title text, plugin text, kind text, text text, rank real)
+language sql stable as $$
+  with scored as (
+    select c.id as chunk_id, c.doc_id, d.title, c.plugin, c.kind, c.text,
+           ((1 - (c.embedding <=> q_embedding))
+             * case when c.kind = 'learned' then 1.25 else 1.0 end)::real as rank
+    from chunks c
+    join documents d on d.id = c.doc_id
+    where c.embedding is not null
+      and (coalesce(p, '') = '' or c.plugin = p or c.plugin = '')
+  ),
+  ranked as (
+    select *, row_number() over (partition by doc_id order by rank desc) as rn
+    from scored
+  )
+  select chunk_id, doc_id, title, plugin, kind, text, rank
+  from ranked
+  where rn <= 2
+  order by rank desc
+  limit n;
+$$;

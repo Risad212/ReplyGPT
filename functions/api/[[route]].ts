@@ -8,6 +8,7 @@ interface Env {
   LLM_MODEL: string;
   LLM_API_KEY: string;
   ASSETS?: { fetch: (request: Request) => Promise<Response> };
+  AI?: { run: (model: string, input: { text: string[] }) => Promise<{ data?: number[][] }> };
 }
 
 type Row = Record<string, any>;
@@ -22,6 +23,8 @@ class HttpError extends Error {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MIN_RANK = 0.07;
+const SEM_MIN = 0.35;
+const EMBED_MODEL = "@cf/baai/bge-m3";
 const enc = encodeURIComponent;
 
 // ---------- helpers ----------
@@ -75,6 +78,23 @@ async function readJson(request: Request): Promise<Row> {
   throw new HttpError(400, "Send a JSON body.");
 }
 
+// Embeddings via the Cloudflare AI binding (free tier). Returns [] when the
+// binding is missing or fails — keyword search still works without it.
+async function embed(env: Env, texts: string[]): Promise<number[][]> {
+  if (!env.AI || !texts.length) return [];
+  const out: number[][] = [];
+  for (let i = 0; i < texts.length; i += 16) {
+    try {
+      const res = await env.AI.run(EMBED_MODEL, { text: texts.slice(i, i + 16) });
+      if (Array.isArray(res?.data)) out.push(...res.data);
+      else return out;
+    } catch {
+      return out;
+    }
+  }
+  return out;
+}
+
 async function createDoc(env: Env, d: { title: string; plugin: string; kind: string; source_url?: string; text: string }): Promise<string> {
   const chunks = chunkText(d.text);
   if (!chunks.length) throw new HttpError(400, "The text is empty.");
@@ -85,14 +105,30 @@ async function createDoc(env: Env, d: { title: string; plugin: string; kind: str
   });
   const id: string = created[0].id;
   const rows = chunks.map((text) => ({ doc_id: id, plugin: d.plugin, kind: d.kind, text }));
+  const inserted: Row[] = [];
   try {
     for (let i = 0; i < rows.length; i += 200) {
-      await sb(env, "chunks", { method: "POST", body: JSON.stringify(rows.slice(i, i + 200)) });
+      const part: Row[] = await sb(env, "chunks", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(rows.slice(i, i + 200)),
+      });
+      inserted.push(...(part || []));
     }
   } catch (e) {
     await sb(env, `documents?id=eq.${id}`, { method: "DELETE" }).catch(() => {});
     throw e;
   }
+  try {
+    const vecs = await embed(env, inserted.map((r) => String(r.text || "")));
+    for (let i = 0; i < inserted.length; i++) {
+      if (!vecs[i]) continue;
+      await sb(env, `chunks?id=eq.${inserted[i].id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ embedding: JSON.stringify(vecs[i]) }),
+      });
+    }
+  } catch {}
   return id;
 }
 
@@ -277,7 +313,32 @@ async function prepareAsk(env: Env, request: Request) {
     method: "POST",
     body: JSON.stringify({ q: question, p: plugin, n: 6 }),
   });
-  const hits: Row[] = (Array.isArray(rpcRes) ? rpcRes : []).filter((h) => Number(h.rank) >= MIN_RANK);
+  let hits: Row[] = (Array.isArray(rpcRes) ? rpcRes : []).filter((h) => Number(h.rank) >= MIN_RANK);
+
+  // Semantic pass: matches by meaning, so it also rescues questions the
+  // keyword search missed. Best rank wins per chunk; keep the top 6.
+  const vec = (await embed(env, [question]))[0];
+  if (vec) {
+    try {
+      const sem: Row[] = await sb(env, "rpc/search_chunks_semantic", {
+        method: "POST",
+        body: JSON.stringify({ q_embedding: JSON.stringify(vec), p: plugin, n: 6 }),
+      });
+      const best = new Map<string, Row>();
+      for (const h of [...hits, ...(Array.isArray(sem) ? sem : [])]) {
+        if (!h || h.rank == null || !h.text || h.title === undefined) continue;
+        const fromKeyword = hits.includes(h);
+        if (!fromKeyword && Number(h.rank) < SEM_MIN) continue;
+        const k = String(h.chunk_id);
+        const prev = best.get(k);
+        if (!prev || Number(h.rank) > Number(prev.rank)) best.set(k, h);
+      }
+      hits = [...best.values()]
+        .filter((h) => Number(h.rank) >= MIN_RANK)
+        .sort((a, b) => Number(b.rank) - Number(a.rank))
+        .slice(0, 6);
+    } catch {}
+  }
   const found = hits.length > 0;
   await logQuestion(env, question, plugin, found);
 
@@ -379,6 +440,23 @@ async function askStream(env: Env, request: Request): Promise<Response> {
   });
 }
 
+async function backfill(env: Env) {
+  const rows: Row[] = await sb(env, "chunks?embedding=is.null&select=id,text&limit=100");
+  if (!rows || !rows.length) return { updated: 0, more: false };
+  const vecs = await embed(env, rows.map((r) => String(r.text || "")));
+  let updated = 0;
+  for (let i = 0; i < rows.length; i++) {
+    if (!vecs[i]) continue;
+    await sb(env, `chunks?id=eq.${rows[i].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ embedding: JSON.stringify(vecs[i]) }),
+    });
+    updated++;
+  }
+  const more: Row[] = await sb(env, "chunks?embedding=is.null&select=id&limit=1");
+  return { updated, more: Array.isArray(more) && more.length > 0 };
+}
+
 async function learn(env: Env, request: Request) {
   const b = await readJson(request);
   const question = clean(b.question, 500);
@@ -424,6 +502,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (m === "DELETE" && route === "docs") return json(await removeDoc(env, url));
     if (m === "POST" && route === "ask") return json(await ask(env, request));
     if (m === "POST" && route === "ask/stream") return askStream(env, request);
+    if (m === "POST" && route === "backfill") return json(await backfill(env));
     if (m === "POST" && route === "learn") return json(await learn(env, request));
     if (m === "GET" && route === "top") return json(await top(env, url));
     if (m === "GET" && route === "unanswered") return json(await unanswered(env, url));

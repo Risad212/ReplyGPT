@@ -16,6 +16,14 @@ Not yet tried: a real Supabase project, a real AI provider, Cloudflare deploymen
 4. **Cloudflare Pages:** connect the repository. Build command: none. Output directory: `public`. Add the variables from `.env.example`.
 5. Open the site — the chat opens directly, there is no login. Pick a plugin and ask a question. Documents are added by the crawler or with `curl` to `POST /api/docs` — see "Adding documents" below.
 6. **Weekly crawl (optional):** add `API_URL` as a GitHub repository secret, and list your sites in `crawler/sites.json`.
+7. **Semantic search (recommended):** in Cloudflare Pages → Settings → Functions, add a **Workers AI binding** named `AI`. Then run `supabase/schema.sql` once more (it adds the `embedding` column), and backfill existing documents:
+
+```bash
+# repeat until it returns {"updated":0,"more":false}
+curl -X POST https://YOUR-SITE.pages.dev/api/backfill
+```
+
+Without the binding the tool still works — it just falls back to keyword search only.
 
 ## Before going live (checklist)
 1. Put the whole site behind **Cloudflare Access** (Zero Trust, free for small teams) so each person signs in with their work email. The API itself has no login.
