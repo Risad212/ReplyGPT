@@ -9,6 +9,7 @@ interface Env {
   LLM_API_KEY: string;
   ASSETS?: { fetch: (request: Request) => Promise<Response> };
   AI?: { run: (model: string, input: { text: string[] }) => Promise<{ data?: number[][] }> };
+  ADMIN_KEY?: string;
 }
 
 type Row = Record<string, any>;
@@ -542,6 +543,18 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const route = url.pathname.replace(/^\/api\/?/, "").replace(/\/$/, "");
     const m = request.method;
+
+    // Optional lock on document changes and backfill. Set ADMIN_KEY in the
+    // Cloudflare variables to turn this on; the crawler sends the same key
+    // as a Bearer token. The chat itself never needs a key.
+    if (env.ADMIN_KEY) {
+      const guarded =
+        (m === "POST" && (route === "docs" || route === "backfill")) ||
+        (m === "DELETE" && route === "docs");
+      if (guarded && request.headers.get("Authorization") !== `Bearer ${env.ADMIN_KEY}`) {
+        return json({ error: "Unauthorized." }, 401);
+      }
+    }
 
     if (m === "GET" && route === "plugins") return json(await plugins(env));
     if (m === "GET" && route === "docs") return json(await listDocs(env));

@@ -146,4 +146,17 @@ semanticResult = [];
   const patch = calls.filter((c) => c.method === "PATCH" && c.url.includes("chunks?id=eq.7")).pop();
   assert.ok(patch && JSON.parse(patch.body).embedding.startsWith("["));
 }
+// ADMIN_KEY locks document changes and backfill, but not the chat
+{
+  const envK = { ...env, ADMIN_KEY: "sekrit" };
+  const callK = (method, path, body, hdrs = {}) =>
+    onRequest({ request: new Request("http://x" + path, { method, headers: hdrs, body: body ? JSON.stringify(body) : undefined }), env: envK });
+  assert.equal((await callK("POST", "/api/docs", { title: "T", text: "x" })).status, 401);
+  assert.equal((await callK("DELETE", "/api/docs?id=11111111-1111-1111-1111-111111111111")).status, 401);
+  assert.equal((await callK("POST", "/api/backfill")).status, 401);
+  assert.equal((await callK("POST", "/api/ask", { question: "hi" })).status, 200);
+  const ok = { Authorization: "Bearer sekrit" };
+  assert.equal((await callK("POST", "/api/backfill", null, ok)).status, 200);
+  assert.equal((await callK("POST", "/api/docs", { title: "T", plugin: "A", text: "hello world" }, ok)).status, 200);
+}
 console.log("All API checks passed.");
