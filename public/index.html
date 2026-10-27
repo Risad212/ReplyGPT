@@ -425,6 +425,10 @@ f.onsubmit = async (e) => {
           holder.text += ev.text;
           a.innerHTML = md(holder.text);
           scroll();
+        } else if (ev.type === "corrected") {
+          holder.text = ev.text;
+          a.innerHTML = md(holder.text);
+          scroll();
         } else if (ev.type === "error") {
           throw new Error(ev.message);
         }
@@ -457,7 +461,7 @@ f.onsubmit = async (e) => {
       s.append("Sources: ");
       list.forEach((x, i) => {
         if (i) s.append(" · ");
-        const label = x.title + (x.plugin ? " — " + x.plugin : "");
+        const label = (x.n ? x.n + ". " : "") + x.title + (x.plugin ? " — " + x.plugin : "");
         if (x.source_url) {
           const link = document.createElement("a");
           link.href = x.source_url;

@@ -208,9 +208,12 @@ function systemPrompt(mode: "found" | "notfound" | "smalltalk", asReply: boolean
   if (mode === "found") {
     return [
       ...persona,
+      "Sound like a knowledgeable colleague explaining to a teammate, not like a documentation page.",
+      "Structure: open with one short direct sentence that answers the question (yes/no, the price, the feature), then explain in 1-3 short sentences or a small list. No filler like 'Great question'.",
       "Use ONLY the numbered passages you are given. Do not add features, versions, prices, integrations or policies that the passages do not state.",
+      "When you state a fact, phrase it as what the documents say and add the passage number in brackets, like [1]. Example: 'Yes — WP Smart Pay Pro supports recurring payments [2].'",
+      "If the passages only partly confirm something, say exactly what is confirmed and what is not. Never turn a maybe into a yes.",
       "Passages from documents titled 'Learned:' are answers the team confirmed. If passages conflict, trust the 'Learned:' ones.",
-      "If the passages only partly answer the question, give the part they support and say what is missing.",
       "If the passages do not answer the question at all, say in one short sentence that the documents do not cover it, suggest checking the plugin documentation or asking a teammate, and cite no documents.",
       "When you do use passages, end with the document title you used in brackets, like [Refund policy]. Never write a placeholder instead of a real title.",
       style,
@@ -290,9 +293,26 @@ async function removeDoc(env: Env, url: URL) {
   return { ok: true };
 }
 
+// Self-check: a second LLM pass that compares the draft answer with the
+// passages and fixes any claim the passages do not support. Best effort —
+// if it fails, the draft is used as is.
+async function factCheck(env: Env, user: string, draft: string): Promise<string> {
+  try {
+    const fixed = await callLlm(
+      env,
+      "You are a strict fact-checker. Compare the draft answer with the passages. Fix every claim the passages do not support: correct it, soften it to what the passages actually say, or remove it. Keep the language, tone and structure of the draft. Keep any [n] citations only where the passage really supports them. Output only the corrected answer, nothing else.",
+      `${user}\n\nDraft answer:\n${draft}`,
+    );
+    return fixed || draft;
+  } catch {
+    return draft;
+  }
+}
+
 async function ask(env: Env, request: Request) {
   const p = await prepareAsk(env, request);
-  const answer = await callLlm(env, systemPrompt(p.mode, p.asReply, p.tone), p.user);
+  let answer = await callLlm(env, systemPrompt(p.mode, p.asReply, p.tone), p.user);
+  if (p.mode === "found") answer = await factCheck(env, p.user, answer);
   return { answer, sources: p.sources, found: p.found, confidence: p.confidence };
 }
 
@@ -386,14 +406,14 @@ async function prepareAsk(env: Env, request: Request) {
       .join("\n\n");
     user = `${user}\n\nPassages:\n${passages}`;
   }
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
   const sources: Row[] = [];
-  for (const h of hits || []) {
+  (hits || []).forEach((h, i) => {
     const k = `${h.title}|${h.plugin}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    sources.push({ title: h.title, plugin: h.plugin, kind: h.kind, doc_id: h.doc_id });
-  }
+    if (seen.has(k)) return;
+    seen.set(k, i + 1);
+    sources.push({ title: h.title, plugin: h.plugin, kind: h.kind, doc_id: h.doc_id, n: i + 1 });
+  });
   // Attach source links so the chat can show clickable citations.
   if (sources.length) {
     try {
@@ -474,7 +494,17 @@ async function askStream(env: Env, request: Request): Promise<Response> {
       const send = (o: unknown) => ctrl.enqueue(enc.encode(`data: ${JSON.stringify(o)}\n\n`));
       try {
         send({ type: "meta", found: p.found, sources: p.sources, confidence: p.confidence });
-        await callLlmStream(env, systemPrompt(p.mode, p.asReply, p.tone), p.user, (t) => send({ type: "delta", text: t }));
+        let full = "";
+        await callLlmStream(env, systemPrompt(p.mode, p.asReply, p.tone), p.user, (t) => {
+          full += t;
+          send({ type: "delta", text: t });
+        });
+        if (p.mode === "found") {
+          const fixed = await factCheck(env, p.user, full);
+          if (fixed && fixed.trim() && fixed.trim() !== full.trim()) {
+            send({ type: "corrected", text: fixed.trim() });
+          }
+        }
         send({ type: "done" });
       } catch (e: any) {
         send({ type: "error", message: e instanceof HttpError ? e.message : "Something went wrong while answering." });

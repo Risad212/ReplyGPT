@@ -56,20 +56,32 @@ let r = await (await call("POST", "/api/ask", { question: "Any hidden charge?", 
 assert.equal(r.found, true);
 assert.equal(r.sources[0].title, "Pricing");
 assert.equal(r.sources[0].source_url, "https://x/pricing");
+assert.equal(r.sources[0].n, 1);
 assert.equal(r.confidence, "high");
 assert.match(r.answer, /hidden charge/);
-const llm = calls.filter((c) => c.url.startsWith("http://llm")).pop();
-assert.match(JSON.parse(llm.body).messages[1].content, /Passages:/);
+const llmCalls = calls.filter((c) => c.url.startsWith("http://llm"));
+// draft + fact-check = 2 LLM calls on a found answer
+assert.equal(llmCalls.length, 2);
+assert.match(JSON.parse(llmCalls[1].body).messages[0].content, /fact-checker/);
+assert.match(JSON.parse(llmCalls[1].body).messages[1].content, /Draft answer:/);
+// notfound: no fact-check pass, but the smart retry adds a rewrite call
+searchResult = [];
+semanticResult = [];
+await call("POST", "/api/ask", { question: "Does it support X?", plugin: "A" });
+const after = calls.filter((c) => c.url.startsWith("http://llm"));
+assert.equal(after.length - llmCalls.length, 2);
+assert.match(JSON.parse(after[after.length - 2].body).messages[0].content, /search keywords/);
 // a weak keyword-only match is answered but flagged low-confidence
 searchResult = [{ title: "Pricing", plugin: "A", kind: "doc", text: "No hidden charge.", rank: 0.08, doc_id: "33333333-3333-3333-3333-333333333333" }];
 r = await (await call("POST", "/api/ask", { question: "Any hidden charge?", plugin: "A" })).json();
 assert.equal(r.found, true);
 assert.equal(r.confidence, "low");
-// formal tone reaches the system prompt
+// formal tone reaches the system prompt of the draft call
 searchResult = [{ title: "Pricing", plugin: "A", kind: "doc", text: "No hidden charge.", rank: 0.61, doc_id: "33333333-3333-3333-3333-333333333333" }];
 await call("POST", "/api/ask", { question: "Any hidden charge?", plugin: "A", tone: "formal" });
-const llmTone = calls.filter((c) => c.url.startsWith("http://llm")).pop();
-assert.match(JSON.parse(llmTone.body).messages[0].content, /formal/);
+const llmAll = calls.filter((c) => c.url.startsWith("http://llm"));
+const draftCall = llmAll[llmAll.length - 2];
+assert.match(JSON.parse(draftCall.body).messages[0].content, /formal/);
 // ask with no match must not send passages and must say not found
 searchResult = [];
 r = await (await call("POST", "/api/ask", { question: "Does it support X?", plugin: "A" })).json();
@@ -115,8 +127,8 @@ assert.equal((await call("POST", "/api/ask", { question: "  " })).status, 400);
   const deltas = events.filter((e) => e.type === "delta").map((e) => e.text).join("");
   assert.match(deltas, /hidden charge/);
   assert.equal(events[events.length - 1].type, "done");
-  const streamLlm = calls.filter((c) => c.url.startsWith("http://llm")).pop();
-  assert.equal(JSON.parse(streamLlm.body).stream, true);
+  const streamLlm = calls.filter((c) => c.url.startsWith("http://llm") && JSON.parse(c.body).stream).pop();
+  assert.ok(streamLlm, "expected a streaming LLM call");
 }
 // add a doc and a learned answer
 assert.equal((await call("POST", "/api/docs", { title: "T", plugin: "A", text: "hello world" })).status, 200);
