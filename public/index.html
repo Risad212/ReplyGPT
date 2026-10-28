@@ -170,9 +170,7 @@
 <header>
   <button class="burger" id="burger" aria-label="Chat history" title="Chat history">&#9776;</button>
   <span class="dot"></span><span class="brand">Ask Desk</span>
-  <span class="right">
-    <button class="burger" id="newbtn" aria-label="New chat" title="New chat">&#65291;</button>
-  </span>
+  <span class="right"></span>
 </header>
 <div class="scrim" id="scrim"></div>
 <nav class="drawer" id="drawer" aria-label="Saved chats">
@@ -333,7 +331,7 @@ for (const b of document.querySelectorAll("#chips button")) {
   };
 }
 
-$("newbtn").onclick = () => { if (!streaming) newChat(); };
+$("newchat").onclick = () => { if (!streaming) { newChat(); closeDrawer(); } };
 
 // ---------- markdown (tiny, safe: escapes first) ----------
 function esc(s) {
