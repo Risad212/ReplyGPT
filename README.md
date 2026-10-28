@@ -1,4 +1,4 @@
-# Ask Desk
+# ReplyGPT
 
 A small support tool: pick a plugin, ask a customer's question, get a reply written from your own documents. Corrections are remembered and the most asked questions are counted.
 
