@@ -276,7 +276,8 @@ async function addDoc(env: Env, request: Request) {
   const title = clean(b.title, 200) || "Untitled note";
   const plugin = clean(b.plugin, 100);
   const kind = b.kind === "learned" ? "learned" : "doc";
-  const source_url = clean(b.source_url, 500);
+  const rawUrl = clean(b.source_url, 500);
+  const source_url = /^https?:\/\//i.test(rawUrl) ? rawUrl : "";
   const text = clean(b.text, 200000);
   if (!text) throw new HttpError(400, "Add some text.");
   if (source_url) {

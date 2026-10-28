@@ -41,11 +41,11 @@
   .wrap { flex:1; overflow-y:auto; scroll-behavior:smooth; }
   .col { max-width:680px; margin:0 auto; padding:24px 20px 16px; display:flex; flex-direction:column; gap:14px; }
   .hello { padding:14vh 6px 24px; text-align:center; }
-  .hello h1 { font-size:26px; font-weight:600; }
-  .hello p { margin-top:8px; color:var(--muted); font-size:14.5px; line-height:1.55; }
+  .hello h1 { font-size:clamp(24px, 5vw, 32px); font-weight:600; letter-spacing:-.01em; }
+  .hello p { margin:10px auto 0; max-width:560px; color:var(--muted); font-size:14.5px; line-height:1.55; }
   .msg {
-    max-width:min(620px, 100%); padding:11px 15px; border-radius:16px;
-    font-size:15px; line-height:1.6; white-space:pre-wrap; word-wrap:break-word;
+    max-width:min(640px, 100%); padding:12px 16px; border-radius:16px;
+    font-size:15.5px; line-height:1.65; white-space:pre-wrap; word-wrap:break-word;
     animation:rise .22s ease-out;
   }
   @keyframes rise { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
@@ -90,6 +90,12 @@
     background:var(--bg); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
   }
   button.send.stop { background:var(--ink); }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:20px; }
+  .chips button {
+    font:inherit; font-size:13.5px; color:var(--ink); background:var(--panel);
+    border:1px solid var(--line); border-radius:999px; padding:8px 14px; cursor:pointer;
+  }
+  .chips button:hover { border-color:var(--accent); color:var(--accent); }
   .burger {
     background:none; border:0; cursor:pointer; font-size:18px; line-height:1;
     color:var(--ink); padding:6px 9px; border-radius:8px; margin-right:2px;
@@ -134,19 +140,20 @@
   .chatitem .x:hover { color:var(--err); }
   .composer { padding:8px 16px 0; }
   #f {
-    display:flex; align-items:center; gap:6px; max-width:680px; margin:0 auto; width:100%;
-    padding:6px 6px 6px 18px; border:1px solid var(--line); border-radius:999px;
+    display:flex; align-items:center; gap:8px; max-width:760px; margin:0 auto; width:100%;
+    padding:7px 7px 7px 20px; border:1px solid var(--line); border-radius:30px;
     background:var(--panel); box-shadow:0 6px 18px rgb(0 0 0 / .07);
+    min-height:56px; box-sizing:border-box;
   }
   #f:focus-within { border-color:var(--accent); }
   #f input {
-    flex:1; min-width:0; font:inherit; font-size:16px; padding:10px 0;
+    flex:1; min-width:0; font:inherit; font-size:16px; padding:8px 0;
     background:transparent; border:0; color:var(--ink);
   }
   #f input::placeholder { color:var(--muted); }
   #f input:focus { outline:none; }
   button.send {
-    flex:0 0 auto; width:42px; height:42px; border-radius:50%;
+    flex:0 0 auto; width:40px; height:40px; border-radius:50%;
     font:inherit; font-size:17px; font-weight:600; background:var(--accent); color:#fff; border:0;
     cursor:pointer; transition:opacity .15s;
   }
@@ -164,12 +171,7 @@
   <button class="burger" id="burger" aria-label="Chat history" title="Chat history">&#9776;</button>
   <span class="dot"></span><span class="brand">Ask Desk</span>
   <span class="right">
-    <select id="tone" title="Reply tone">
-      <option value="friendly">Friendly</option>
-      <option value="formal">Formal</option>
-    </select>
-    <select id="plugin" hidden></select>
-    <span class="sub" id="sub"></span>
+    <button class="burger" id="newbtn" aria-label="New chat" title="New chat">&#65291;</button>
   </span>
 </header>
 <div class="scrim" id="scrim"></div>
@@ -180,8 +182,13 @@
 </nav>
 <div class="wrap"><div class="col" id="col">
   <div class="hello" id="hello">
-    <h1>Ask anything.</h1>
-    <p>Answers come from the team's own documents — nothing is invented.</p>
+    <h1>Ask about any plugin.</h1>
+    <p id="helloSub">Answers come from the team's own documents — nothing is invented.</p>
+    <div class="chips" id="chips">
+      <button type="button">Does WP Smart Pay support Tutor LMS?</button>
+      <button type="button">How much does WP Smart Pay Pro cost?</button>
+      <button type="button">What is the refund policy?</button>
+    </div>
   </div>
 </div></div>
 <div class="composer">
@@ -193,18 +200,12 @@
 </div>
 <script>
 const API = location.origin + "/api";
-const LS_PLUGIN = "askdesk.plugin";
 const LS_CHATS = "askdesk.chats";
 const LS_CHAT = "askdesk.chat";
 const $ = (id) => document.getElementById(id);
 const col = $("col"), f = $("f"), q = $("q"), send = $("send"),
-      pluginSel = $("plugin"), sub = $("sub"), toneSel = $("tone"),
       burger = $("burger"), drawer = $("drawer"), scrim = $("scrim"),
       chatlist = $("chatlist"), helloEl = $("hello");
-let plugin = localStorage.getItem(LS_PLUGIN) || "";
-let tone = localStorage.getItem("askdesk.tone") || "friendly";
-toneSel.value = tone;
-toneSel.onchange = () => { tone = toneSel.value; localStorage.setItem("askdesk.tone", tone); };
 let lastQ = "";
 let history = [];
 const scroll = () => requestAnimationFrame(() => { col.parentElement.scrollTop = col.parentElement.scrollHeight; });
@@ -310,35 +311,29 @@ function typing() {
   return a;
 }
 
+// One assistant for every plugin: asks always search all documents, so new
+// plugins work automatically as soon as their documents are added.
 async function loadPlugins() {
   const r = await fetch(API + "/plugins", { headers: headers() });
   if (!r.ok) return "err";
   const j = await r.json().catch(() => ({}));
-  const names = j.plugins || [];
-  pluginSel.replaceChildren();
-  if (!names.length) {
-    plugin = "";
-    sub.textContent = "All documents";
-  } else if (names.length === 1) {
-    plugin = names[0];
-    sub.textContent = names[0];
-  } else {
-    for (const p of names) pluginSel.add(new Option(p, p));
-    const saved = localStorage.getItem(LS_PLUGIN) || "";
-    plugin = names.includes(saved) ? saved : names[0];
-    pluginSel.value = plugin;
-    pluginSel.hidden = false;
-    sub.textContent = "";
+  const names = (j.plugins || []).filter(Boolean);
+  if (names.length) {
+    $("helloSub").textContent =
+      "Ask about " + names.join(", ") + " — answers come from the team's own documents, nothing is invented.";
   }
-  localStorage.setItem(LS_PLUGIN, plugin);
   return "ok";
 }
 
-pluginSel.onchange = () => {
-  plugin = pluginSel.value;
-  localStorage.setItem(LS_PLUGIN, plugin);
-  newChat();
-};
+for (const b of document.querySelectorAll("#chips button")) {
+  b.onclick = () => {
+    if (streaming) return;
+    q.value = b.textContent;
+    f.requestSubmit();
+  };
+}
+
+$("newbtn").onclick = () => { if (!streaming) newChat(); };
 
 // ---------- markdown (tiny, safe: escapes first) ----------
 function esc(s) {
@@ -397,7 +392,7 @@ f.onsubmit = async (e) => {
     const r = await fetch(API + "/ask/stream", {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ question, plugin, asReply: true, tone, history }),
+      body: JSON.stringify({ question, asReply: true, history }),
       signal: ctrl.signal,
     });
     if (!r.ok || !r.body) {
@@ -462,7 +457,7 @@ f.onsubmit = async (e) => {
       list.forEach((x, i) => {
         if (i) s.append(" · ");
         const label = (x.n ? x.n + ". " : "") + x.title + (x.plugin ? " — " + x.plugin : "");
-        if (x.source_url) {
+        if (x.source_url && /^https?:\/\//i.test(x.source_url)) {
           const link = document.createElement("a");
           link.href = x.source_url;
           link.target = "_blank";
@@ -542,7 +537,7 @@ function addTools(a, question, holder, srcEl) {
       const r = await fetch(API + "/learn", {
         method: "POST",
         headers: headers(),
-        body: JSON.stringify({ question: lastQ || question, answer, plugin }),
+        body: JSON.stringify({ question: lastQ || question, answer, plugin: "" }),
       });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.id) {
