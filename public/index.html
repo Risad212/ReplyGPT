@@ -11,11 +11,13 @@
   :root {
     --accent:#1f6b5a; --accent-soft:#e7f0ec; --bg:#f7f5f1; --panel:#ffffff;
     --ink:#1c2321; --muted:#6e7a75; --line:#e6e0d6; --err:#b4432e;
+    --accent-strong:#1f6b5a; --line-focus:#1f6b5a;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --accent:#5fc2a8; --accent-soft:#233230; --bg:#141917; --panel:#1d2321;
-      --ink:#e9ebe8; --muted:#92a39c; --line:#2b3431; --err:#ef8a75;
+      --ink:#e9ebe8; --muted:#9db1a9; --line:#2b3431; --err:#ef8a75;
+      --accent-strong:#2e7d68; --line-focus:#3e6a5c;
     }
   }
   * { box-sizing:border-box; margin:0; }
@@ -49,7 +51,7 @@
     animation:rise .22s ease-out;
   }
   @keyframes rise { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
-  .q { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:5px; }
+  .q { align-self:flex-end; background:var(--accent-strong); color:#fff; border-bottom-right-radius:5px; }
   .a { align-self:flex-start; background:var(--panel); border:1px solid var(--line); box-shadow:0 1px 2px rgb(0 0 0 / .04); border-bottom-left-radius:5px; }
   .src { margin-top:8px; font-size:12.5px; color:var(--muted); }
   .src a { color:var(--accent); text-decoration:underline; text-underline-offset:2px; }
@@ -66,7 +68,7 @@
   .tools .fixbtn:hover, .tools .fixbtn[aria-expanded="true"] { color:var(--accent); border-color:var(--accent); }
   .tools .savebtn {
     font:inherit; font-size:12.5px; font-weight:600; color:#fff;
-    background:var(--accent); border:0; border-radius:8px; padding:4px 11px; cursor:pointer;
+    background:var(--accent-strong); border:0; border-radius:8px; padding:4px 11px; cursor:pointer;
   }
   .tools .savebtn:disabled { opacity:.45; cursor:progress; }
   .tools .note { font-size:12.5px; color:var(--accent); }
@@ -145,7 +147,7 @@
     background:var(--panel); box-shadow:0 6px 18px rgb(0 0 0 / .07);
     min-height:56px; box-sizing:border-box;
   }
-  #f:focus-within { border-color:var(--accent); }
+  #f:focus-within { border-color:var(--line-focus); }
   #f input {
     flex:1; min-width:0; font:inherit; font-size:16px; padding:8px 0;
     background:transparent; border:0; color:var(--ink);
@@ -154,7 +156,7 @@
   #f input:focus { outline:none; }
   button.send {
     flex:0 0 auto; width:40px; height:40px; border-radius:50%;
-    font:inherit; font-size:17px; font-weight:600; background:var(--accent); color:#fff; border:0;
+    font:inherit; font-size:17px; font-weight:600; background:var(--accent-strong); color:#fff; border:0;
     cursor:pointer; transition:opacity .15s;
   }
   button.send:disabled { opacity:.45; cursor:progress; }
