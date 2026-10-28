@@ -1,7 +1,7 @@
-// Ask Desk as a single Worker: static files from public/ plus the API.
+// ReplyGPT as a single Worker: static files from public/ plus the API.
 // Deployed automatically by Cloudflare's Git integration.
 {
-  "name": "ask-desk",
+  "name": "replygpt",
   "main": "functions/api/[[route]].ts",
   "compatibility_date": "2025-11-01",
   // Non-secret settings. SUPABASE_SERVICE_KEY and LLM_API_KEY are Secrets,
